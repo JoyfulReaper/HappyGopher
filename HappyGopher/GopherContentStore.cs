@@ -62,6 +62,7 @@ public sealed class GopherContentStore
         if (path is null)
         {
             await WriteErrorAsync(output, "Invalid Selector.", cancellationToken);
+            return;
         }
 
         if (Directory.Exists(path))
