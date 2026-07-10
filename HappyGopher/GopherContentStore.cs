@@ -377,11 +377,11 @@ public sealed class GopherContentStore
         if (relative.Contains(':'))
             return null;
 
-        string canidate;
+        string candidate;
 
         try
         {
-            canidate = Path.GetFullPath(Path.Combine(
+            candidate = Path.GetFullPath(Path.Combine(
                 ContentRoot,
                 relative.Replace('/', Path.DirectorySeparatorChar)));
         }
@@ -392,11 +392,11 @@ public sealed class GopherContentStore
 
 
         bool isRoot = string.Equals(
-            canidate,
+            candidate,
             ContentRoot,
             StringComparison.OrdinalIgnoreCase);
 
-        bool isInsideRoot = canidate.StartsWith(
+        bool isInsideRoot = candidate.StartsWith(
             _rootWithSeparator,
             StringComparison.OrdinalIgnoreCase);
 
@@ -406,13 +406,13 @@ public sealed class GopherContentStore
             return null;
         }
 
-        if (ContainsReparsePoint(canidate))
+        if (ContainsReparsePoint(candidate))
         {
             _logger.LogWarning("Blocked selector through a reparse point: {Selector}", selector);
             return null;
         }
 
-        return canidate;
+        return candidate;
     }
 
     private bool ContainsReparsePoint(string canidate)
