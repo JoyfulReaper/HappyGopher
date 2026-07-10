@@ -191,40 +191,96 @@ public class HappyGopherWorker(
     private async Task<string?> ReadSelectorLineAsync(
         NetworkStream stream,
         CancellationToken stoppingToken)
-
     {
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(options.Value.MaxSelectorBytes + 1);
+        int maxSelectorBytes = options.Value.MaxSelectorBytes;
 
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(options.Value.RequestTimeoutSeconds));
+        // Two extra bytes allow an exact-length selector followed by CRLF.
+        int capacity = checked(maxSelectorBytes + 2);
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(capacity);
+
+        using var timeout =
+            CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+
+        timeout.CancelAfter(
+            TimeSpan.FromSeconds(options.Value.RequestTimeoutSeconds));
 
         try
         {
             int count = 0;
-            while (count <= options.Value.MaxSelectorBytes)
-            {
-                int read = await stream.ReadAsync(buffer.AsMemory(count, 1), timeout.Token);
 
-                if (read == 0)
+            while (true)
+            {
+                int remainingCapacity = capacity - count;
+
+                if (remainingCapacity == 0)
                 {
-                    return count == 0 ? null : DecodeSelector(buffer, count);
+                    throw new InvalidDataException(
+                        $"Selector exceeded the {maxSelectorBytes} byte limit.");
                 }
 
-                if (buffer[count] == (byte)'\n')
+                int bytesRead = await stream.ReadAsync(
+                    buffer.AsMemory(count, remainingCapacity),
+                    timeout.Token);
+
+                if (bytesRead == 0)
                 {
-                    int lineLength = count;
-                    if (lineLength > 0 && buffer[lineLength - 1] == (byte)'\r')
+                    // Client disconnected without sending anything.
+                    if (count == 0)
+                    {
+                        return null;
+                    }
+
+                    if (count > maxSelectorBytes)
+                    {
+                        throw new InvalidDataException(
+                            $"Selector exceeded the {maxSelectorBytes} byte limit.");
+                    }
+
+                    return DecodeSelector(buffer, count);
+                }
+
+                ReadOnlySpan<byte> received =
+                    buffer.AsSpan(count, bytesRead);
+
+                int newlineOffset = received.IndexOf((byte)'\n');
+
+                if (newlineOffset >= 0)
+                {
+                    int lineLength = count + newlineOffset;
+
+                    // Strip the CR from a normal CRLF request.
+                    if (lineLength > 0 &&
+                        buffer[lineLength - 1] == (byte)'\r')
                     {
                         lineLength--;
                     }
+
+                    if (lineLength > maxSelectorBytes)
+                    {
+                        throw new InvalidDataException(
+                            $"Selector exceeded the {maxSelectorBytes} byte limit.");
+                    }
+
                     return DecodeSelector(buffer, lineLength);
                 }
 
-                count++;
+                count += bytesRead;
+
+                if (count > maxSelectorBytes)
+                {
+                    // An exact-length selector may still have a trailing CR
+                    // while we wait for the final LF.
+                    bool awaitingLfAfterCr =
+                        count == maxSelectorBytes + 1 &&
+                        buffer[count - 1] == (byte)'\r';
+
+                    if (!awaitingLfAfterCr)
+                    {
+                        throw new InvalidDataException(
+                            $"Selector exceeded the {maxSelectorBytes} byte limit.");
+                    }
+                }
             }
-            throw new InvalidDataException(
-                $"Selector exceeded the {options.Value.MaxSelectorBytes} byte limit."
-            );
         }
         finally
         {

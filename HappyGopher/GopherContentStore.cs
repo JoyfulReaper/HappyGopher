@@ -22,11 +22,6 @@ public sealed class GopherContentStore
             Path.IsPathRooted(_options.ContentRoot)
                 ? _options.ContentRoot
                 : Path.Combine(AppContext.BaseDirectory, _options.ContentRoot));
-
-        Directory.CreateDirectory(ContentRoot);
-        _rootWithSeparator = ContentRoot.TrimEnd(
-            Path.DirectorySeparatorChar,
-            Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
     }
 
     private static readonly Encoding WireEncoding = new UTF8Encoding(
@@ -34,7 +29,6 @@ public sealed class GopherContentStore
 
     private readonly HappyGopherOptions _options;
     private readonly ILogger<GopherContentStore> _logger;
-    private readonly string _rootWithSeparator;
 
     private static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -419,19 +413,11 @@ public sealed class GopherContentStore
             ContentRoot,
             candidate);
 
-        // The candidate is the content root itself.
-        if (relativePath == ".")
-        {
-            return true;
-        }
-
-        // This can happen when paths are on different Windows drives.
         if (Path.IsPathRooted(relativePath))
         {
             return false;
         }
 
-        // "../secret" or "..\secret" escaped the content root.
         if (relativePath == "..")
         {
             return false;
@@ -444,19 +430,16 @@ public sealed class GopherContentStore
             return false;
         }
 
-        if (relativePath.StartsWith(
-            $"..{Path.AltDirectorySeparatorChar}",
-            StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        return true;
+        return Path.AltDirectorySeparatorChar ==
+               Path.DirectorySeparatorChar ||
+               !relativePath.StartsWith(
+                   $"..{Path.AltDirectorySeparatorChar}",
+                   StringComparison.Ordinal);
     }
 
-    private bool ContainsReparsePoint(string canidate)
+    private bool ContainsReparsePoint(string candidate)
     {
-        string relative = Path.GetRelativePath(ContentRoot, canidate);
+        string relative = Path.GetRelativePath(ContentRoot, candidate);
         if (relative == ".")
             return false;
 
