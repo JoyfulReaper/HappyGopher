@@ -5,11 +5,9 @@
  */
 
 using Microsoft.Extensions.Options;
-using System.Buffers;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
-using System.Text;
 
 namespace HappyGopher;
 
@@ -26,9 +24,6 @@ public class HappyGopherWorker(
         options.Value.MaxConcurrentConnections,
         options.Value.MaxConcurrentConnections);
     private long _nextConnectionId;
-    private static readonly Encoding SelectorEncoding = new UTF8Encoding(
-        encoderShouldEmitUTF8Identifier: false,
-        throwOnInvalidBytes: false);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -188,108 +183,14 @@ public class HappyGopherWorker(
 
     }
 
-    private async Task<string?> ReadSelectorLineAsync(
+    private Task<string?> ReadSelectorLineAsync(
         NetworkStream stream,
-        CancellationToken stoppingToken)
-    {
-        int maxSelectorBytes = options.Value.MaxSelectorBytes;
-
-        // Two extra bytes allow an exact-length selector followed by CRLF.
-        int capacity = checked(maxSelectorBytes + 2);
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(capacity);
-
-        using var timeout =
-            CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-
-        timeout.CancelAfter(
-            TimeSpan.FromSeconds(options.Value.RequestTimeoutSeconds));
-
-        try
-        {
-            int count = 0;
-
-            while (true)
-            {
-                int remainingCapacity = capacity - count;
-
-                if (remainingCapacity == 0)
-                {
-                    throw new InvalidDataException(
-                        $"Selector exceeded the {maxSelectorBytes} byte limit.");
-                }
-
-                int bytesRead = await stream.ReadAsync(
-                    buffer.AsMemory(count, remainingCapacity),
-                    timeout.Token);
-
-                if (bytesRead == 0)
-                {
-                    // Client disconnected without sending anything.
-                    if (count == 0)
-                    {
-                        return null;
-                    }
-
-                    if (count > maxSelectorBytes)
-                    {
-                        throw new InvalidDataException(
-                            $"Selector exceeded the {maxSelectorBytes} byte limit.");
-                    }
-
-                    return DecodeSelector(buffer, count);
-                }
-
-                ReadOnlySpan<byte> received =
-                    buffer.AsSpan(count, bytesRead);
-
-                int newlineOffset = received.IndexOf((byte)'\n');
-
-                if (newlineOffset >= 0)
-                {
-                    int lineLength = count + newlineOffset;
-
-                    // Strip the CR from a normal CRLF request.
-                    if (lineLength > 0 &&
-                        buffer[lineLength - 1] == (byte)'\r')
-                    {
-                        lineLength--;
-                    }
-
-                    if (lineLength > maxSelectorBytes)
-                    {
-                        throw new InvalidDataException(
-                            $"Selector exceeded the {maxSelectorBytes} byte limit.");
-                    }
-
-                    return DecodeSelector(buffer, lineLength);
-                }
-
-                count += bytesRead;
-
-                if (count > maxSelectorBytes)
-                {
-                    // An exact-length selector may still have a trailing CR
-                    // while we wait for the final LF.
-                    bool awaitingLfAfterCr =
-                        count == maxSelectorBytes + 1 &&
-                        buffer[count - 1] == (byte)'\r';
-
-                    if (!awaitingLfAfterCr)
-                    {
-                        throw new InvalidDataException(
-                            $"Selector exceeded the {maxSelectorBytes} byte limit.");
-                    }
-                }
-            }
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
-        }
-    }
-
-    private static string DecodeSelector(byte[] buffer, int length) =>
-        SelectorEncoding.GetString(buffer, 0, length);
+        CancellationToken stoppingToken) =>
+        GopherSelectorReader.ReadAsync(
+            stream,
+            options.Value.MaxSelectorBytes,
+            options.Value.RequestTimeoutSeconds,
+            stoppingToken);
 
     private static IPAddress ParseListenAddress(string value)
     {
