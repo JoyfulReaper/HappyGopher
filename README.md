@@ -10,6 +10,29 @@ HappyGopher serves files and directory menus over the classic [Gopher protocol](
 
 No web framework. No database. No JavaScript. Just a TCP listener, a folder full of content, and a protocol from a simpler time.
 
+## Live Demo
+
+A live Gopher site powered by HappyGopher is available at:
+
+```text
+gopher://gopher.kgivler.com/
+```
+
+You can connect with any Gopher client:
+
+```text
+gopher gopher.kgivler.com
+```
+
+Or, if your build of `curl` supports Gopher:
+
+```powershell
+curl.exe gopher://gopher.kgivler.com/
+```
+
+The live site is intentionally small and plain text, and serves as a real-world example of HappyGopher hosting static Gopher content.
+
+
 ## Features
 
 * Serves static text, images, and binary files over Gopher
