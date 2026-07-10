@@ -24,6 +24,7 @@ builder.Services
     .ValidateOnStart();
 
 builder.Services.AddHostedService<HappyGopherWorker>();
+builder.Services.AddSingleton<GopherContentStore>();
 
 var host = builder.Build();
 host.Run();

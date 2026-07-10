@@ -1,0 +1,4 @@
+Happy Gopher Server
+
+Written By Kyle Givler
+Copyright 2026 Mit License
