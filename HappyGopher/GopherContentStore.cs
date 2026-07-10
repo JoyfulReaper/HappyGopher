@@ -134,7 +134,70 @@ public sealed class GopherContentStore
             await WriteGopherMapAsync(directory, mapPath, output, cancellationToken);
             return;
         }
+
+        string[] directories = Directory.GetDirectories(directory)
+            .Where(path => !ContainsReparsePoint(path))
+            .ToArray();
+        string[] files = Directory.GetFiles(directory)
+            .Where(path => !IsInternalFile(path) && !ContainsReparsePoint(path))
+            .ToArray();
+
+        Array.Sort(directories, ComparePathsByName);
+        Array.Sort(files, ComparePathsByName);
+
+        await using var writer = CreateWriter(output);
+        foreach (string childDir in directories)
+        {
+            string name = Path.GetFileName(childDir);
+            string selector = PathToSelector(childDir);
+
+            await WriteMenuItemAsync(
+                writer,
+                '1',
+                name + "/",
+                selector,
+                _options.PublicHost,
+                _options.Port,
+                cancellationToken
+            );
+        }
+
+        foreach (string file in files)
+        {
+            await WriteMenuItemAsync(
+                writer,
+                GetItemType(file),
+                Path.GetFileName(file),
+                PathToSelector(file),
+                _options.PublicHost,
+                _options.Port,
+                cancellationToken);
+        }
+
+        await WriteTerminatorAsync(writer, cancellationToken);
     }
+
+    private static char GetItemType(string path)
+    {
+        string extension = Path.GetExtension(path);
+
+        if (string.Equals(extension, ".gif", StringComparison.OrdinalIgnoreCase))
+        {
+            return 'g';
+        }
+
+        if (ImageExtensions.Contains(extension))
+        {
+            return 'I';
+        }
+
+        return TextExtensions.Contains(extension) ? '0' : '9';
+    }
+
+    private static int ComparePathsByName(string left, string right) =>
+        StringComparer.OrdinalIgnoreCase.Compare(
+            Path.GetFileName(left),
+            Path.GetFileName(right));
 
     private static bool IsInternalFile(string path) =>
         string.Equals(
