@@ -22,7 +22,9 @@ public class HappyGopherWorker(
     private TcpListener? _listener;
     private readonly ConcurrentDictionary<long, Task> _activeConnections = new();
     private volatile bool _stopRequested;
-    private readonly SemaphoreSlim _connectionLimit;
+    private readonly SemaphoreSlim _connectionLimit = new(
+        options.Value.MaxConcurrentConnections,
+        options.Value.MaxConcurrentConnections);
     private long _nextConnectionId;
     private static readonly Encoding SelectorEncoding = new UTF8Encoding(
         encoderShouldEmitUTF8Identifier: false,
