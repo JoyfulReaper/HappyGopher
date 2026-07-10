@@ -347,18 +347,13 @@ public sealed class GopherContentStore
     {
         string line = string.Concat(
             type,
-            SanitizeField(display), "\t",
-            SanitizeField(selector), "\t",
-            SanitizeField(host), "\t",
+            GopherMenuFields.Sanitize(display), "\t",
+            GopherMenuFields.Sanitize(selector), "\t",
+            GopherMenuFields.Sanitize(host), "\t",
             port.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
         await writer.WriteLineAsync(line.AsMemory(), cancellationToken);
     }
-
-    private static string SanitizeField(string value) =>
-        value.Replace('\t', ' ')
-            .Replace('\r', ' ')
-            .Replace('\n', ' ');
 
     private static StreamWriter CreateWriter(Stream output) =>
         new(output, WireEncoding, bufferSize: 4096, leaveOpen: true)
@@ -389,7 +384,7 @@ public sealed class GopherContentStore
         }
 
 
-        if (!IsInsideContentRoot(candidate))
+        if (!GopherPathSecurity.IsInsideRoot(ContentRoot, candidate))
         {
             _logger.LogWarning(
                 "Blocked path traversal selector {Selector}",
@@ -398,7 +393,7 @@ public sealed class GopherContentStore
             return null;
         }
 
-        if (ContainsReparsePoint(candidate))
+        if (GopherPathSecurity.ContainsReparsePoint(ContentRoot, candidate))
         {
             _logger.LogWarning("Blocked selector through a reparse point: {Selector}", selector);
             return null;
@@ -407,69 +402,6 @@ public sealed class GopherContentStore
         return candidate;
     }
 
-    private bool IsInsideContentRoot(string candidate)
-    {
-        string relativePath = Path.GetRelativePath(
-            ContentRoot,
-            candidate);
-
-        if (Path.IsPathRooted(relativePath))
-        {
-            return false;
-        }
-
-        if (relativePath == "..")
-        {
-            return false;
-        }
-
-        if (relativePath.StartsWith(
-            $"..{Path.DirectorySeparatorChar}",
-            StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        return Path.AltDirectorySeparatorChar ==
-               Path.DirectorySeparatorChar ||
-               !relativePath.StartsWith(
-                   $"..{Path.AltDirectorySeparatorChar}",
-                   StringComparison.Ordinal);
-    }
-
-    private bool ContainsReparsePoint(string candidate)
-    {
-        string relative = Path.GetRelativePath(ContentRoot, candidate);
-        if (relative == ".")
-            return false;
-
-        string current = ContentRoot;
-        foreach (string part in relative.Split(
-            Path.DirectorySeparatorChar,
-            StringSplitOptions.RemoveEmptyEntries))
-        {
-            current = Path.Combine(current, part);
-            if (!File.Exists(current) && !Directory.Exists(current))
-            {
-                break;
-            }
-
-            try
-            {
-                if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
-                {
-                    return true;
-                }
-            }
-            catch (IOException)
-            {
-                return true;
-            }
-            catch (UnauthorizedAccessException)
-            {
-                return true;
-            }
-        }
-        return false;
-    }
+    private bool ContainsReparsePoint(string candidate) =>
+        GopherPathSecurity.ContainsReparsePoint(ContentRoot, candidate);
 }

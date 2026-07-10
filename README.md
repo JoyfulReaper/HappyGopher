@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/github/license/JoyfulReaper/HappyGopher)](LICENSE)
 [![GitHub Repo](https://img.shields.io/badge/GitHub-JoyfulReaper%2FHappyGopher-181717?logo=github)](https://github.com/JoyfulReaper/HappyGopher)
 
-A small, static Gopher server for Windows, built with C# and .NET.
+A small, static Gopher server for Windows, built with C# and .NET 10.
 
 HappyGopher serves files and directory menus over the classic [Gopher protocol](https://en.wikipedia.org/wiki/Gopher_%28protocol%29). It can run directly from the console during development or as a Windows Service for long-running installations.
 
@@ -47,13 +47,13 @@ Run the server:
 dotnet run --project .\HappyGopher\HappyGopher.csproj
 ```
 
-The default configuration listens on all IPv4 interfaces at port `70`.
+The default checked-in configuration listens on loopback at port `70`.
 
 ```text
-0.0.0.0:70
+127.0.0.1:70
 ```
 
-Your firewall may ask whether the application should be allowed to accept incoming connections.
+With this default, HappyGopher accepts local connections only. To serve other machines, change `ListenAddress` to an address such as `0.0.0.0` and review your firewall rules.
 
 ## Configuration
 
@@ -74,7 +74,7 @@ The default configuration resembles:
     }
   },
   "Gopher": {
-    "ListenAddress": "0.0.0.0",
+    "ListenAddress": "127.0.0.1",
     "Port": 70,
     "PublicHost": "127.0.0.1",
     "ContentRoot": "content",
@@ -89,7 +89,7 @@ The default configuration resembles:
 
 | Setting                    |     Default | Description                                                      |
 | -------------------------- | ----------: | ---------------------------------------------------------------- |
-| `ListenAddress`            |   `0.0.0.0` | Local IP address on which the TCP server listens.                |
+| `ListenAddress`            | `127.0.0.1` | Local IP address on which the TCP server listens.                |
 | `Port`                     |        `70` | TCP port used by the server.                                     |
 | `PublicHost`               | `127.0.0.1` | Hostname or IP address advertised inside generated Gopher menus. |
 | `ContentRoot`              |   `content` | Directory containing files and `gophermap` menus.                |
@@ -99,7 +99,7 @@ The default configuration resembles:
 
 `ListenAddress` and `PublicHost` serve different purposes:
 
-* `ListenAddress` controls where HappyGopher accepts connections.
+* `ListenAddress` controls where HappyGopher accepts connections. The checked-in default is loopback-only, not all interfaces.
 * `PublicHost` is the address placed into menu entries returned to clients.
 
 For a public server, set `PublicHost` to the hostname clients actually use:
@@ -108,10 +108,10 @@ For a public server, set `PublicHost` to the hostname clients actually use:
 "PublicHost": "gopher.example.com"
 ```
 
-For a local-only server, bind directly to loopback:
+For a public server, bind to the interface that should accept client connections:
 
 ```json
-"ListenAddress": "127.0.0.1"
+"ListenAddress": "0.0.0.0"
 ```
 
 ## Adding Content
@@ -135,7 +135,9 @@ content/
 
 Text files are sent using Gopher text-file formatting. Other files are streamed directly to the client.
 
-When a directory does not contain a `gophermap`, HappyGopher generates a menu by scanning its files and subdirectories.
+When a directory does not contain a `gophermap`, HappyGopher generates a menu by scanning its files and subdirectories. Directories are listed before files, entries are sorted by name, and file item types are inferred from file extensions.
+
+The project file recursively copies `HappyGopher/content/**` into both build output and publish output, so the sample content stays beside the executable during normal `dotnet build` and `dotnet publish` workflows.
 
 ## Gophermaps
 
@@ -155,7 +157,9 @@ Replace each `<TAB>` marker with an actual tab character.
 
 HappyGopher automatically fills in the configured public hostname and port for local entries.
 
-Relative selectors are resolved relative to the directory containing the `gophermap`.
+Relative selectors are resolved relative to the directory containing the `gophermap`. Absolute selectors, external hosts, and explicit valid ports are preserved. Invalid explicit ports fall back to the configured server port.
+
+Tabs, carriage returns, and newlines in generated menu fields are replaced with spaces before being written to the wire.
 
 ### Common item types
 
@@ -178,6 +182,12 @@ iThis line is displayed
 ```
 
 ## Testing the Server
+
+Run the automated test suite:
+
+```powershell
+dotnet test
+```
 
 Use a Gopher client and connect to:
 
@@ -229,7 +239,7 @@ dotnet publish .\HappyGopher\HappyGopher.csproj `
     --output .\publish
 ```
 
-The published `content` directory and `appsettings.json` should remain beside the executable.
+The published `content` directory and `appsettings.json` should remain beside the executable. Content files under `HappyGopher/content` are copied recursively during publish.
 
 Run the published server:
 
@@ -280,6 +290,8 @@ HappyGopher treats the configured content directory as a security boundary.
 
 Requested selectors are normalized and checked to ensure that they remain inside the content root. Requests involving path traversal, symbolic links, junctions, or other reparse points are rejected.
 
+Selectors are read as UTF-8 and are limited by byte count, not .NET character count. By default, selectors may be up to `4096` bytes and clients have `15` seconds to complete a request line.
+
 That said, this is an early-stage project. Before exposing it publicly:
 
 * Keep the .NET runtime and operating system updated.
@@ -295,6 +307,7 @@ Gopher does not provide encryption. Traffic, selectors, and downloaded content a
 * Static files only
 * No authentication or access control
 * No TLS support
+* Gopher traffic is plaintext
 * No dynamic scripts or CGI handlers
 * No Gopher search handlers
 * No administrative interface
@@ -308,11 +321,21 @@ HappyGopher.slnx
 ├── HappyGopher/
 │   ├── Program.cs
 │   ├── HappyGopherWorker.cs
+│   ├── GopherSelectorReader.cs
+│   ├── GopherPathSecurity.cs
+│   ├── GopherMenuFields.cs
 │   ├── HappyGopherOptions.cs
 │   ├── GopherContentStore.cs
 │   ├── HappyGopher.csproj
 │   ├── appsettings.json
 │   └── content/
+├── HappyGopher.Tests/
+│   ├── GopherSelectorReaderTests.cs
+│   ├── GopherContentStoreTests.cs
+│   ├── GopherPathSecurityTests.cs
+│   ├── GopherMenuFieldsTests.cs
+│   ├── HappyGopherIntegrationTests.cs
+│   └── HappyGopher.Tests.csproj
 └── LICENSE
 ```
 
