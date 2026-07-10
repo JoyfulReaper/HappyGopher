@@ -252,7 +252,11 @@ public sealed class GopherContentStore
 
             bool isLocalItem = string.IsNullOrWhiteSpace(explicitHost);
             string host = isLocalItem ? _options.PublicHost : explicitHost!;
-            int port = int.TryParse(explicitPort, out int parsedPort) ? parsedPort : _options.Port;
+            int port =
+                int.TryParse(explicitPort, out int parsedPort) &&
+                parsedPort is > 0 and <= 65535
+                    ? parsedPort
+                    : _options.Port;
 
             if (isLocalItem &&
                 !selector.StartsWith('/') &&
