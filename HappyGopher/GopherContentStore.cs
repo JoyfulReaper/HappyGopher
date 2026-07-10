@@ -395,18 +395,12 @@ public sealed class GopherContentStore
         }
 
 
-        bool isRoot = string.Equals(
-            candidate,
-            ContentRoot,
-            StringComparison.OrdinalIgnoreCase);
-
-        bool isInsideRoot = candidate.StartsWith(
-            _rootWithSeparator,
-            StringComparison.OrdinalIgnoreCase);
-
-        if (!isRoot && !isInsideRoot)
+        if (!IsInsideContentRoot(candidate))
         {
-            _logger.LogWarning("Blocked path traversal selector {Selector}", selector);
+            _logger.LogWarning(
+                "Blocked path traversal selector {Selector}",
+                selector);
+
             return null;
         }
 
@@ -417,6 +411,47 @@ public sealed class GopherContentStore
         }
 
         return candidate;
+    }
+
+    private bool IsInsideContentRoot(string candidate)
+    {
+        string relativePath = Path.GetRelativePath(
+            ContentRoot,
+            candidate);
+
+        // The candidate is the content root itself.
+        if (relativePath == ".")
+        {
+            return true;
+        }
+
+        // This can happen when paths are on different Windows drives.
+        if (Path.IsPathRooted(relativePath))
+        {
+            return false;
+        }
+
+        // "../secret" or "..\secret" escaped the content root.
+        if (relativePath == "..")
+        {
+            return false;
+        }
+
+        if (relativePath.StartsWith(
+            $"..{Path.DirectorySeparatorChar}",
+            StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (relativePath.StartsWith(
+            $"..{Path.AltDirectorySeparatorChar}",
+            StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return true;
     }
 
     private bool ContainsReparsePoint(string canidate)
