@@ -104,8 +104,10 @@ public class HappyGopherWorker(
 
     public override Task StopAsync(CancellationToken cancellationToken)
     {
+        logger.LogInformation("HappyGopher Server Stopping...");
         _stopRequested = true;
         _listener?.Stop();
+
         return base.StopAsync(cancellationToken);
     }
 
