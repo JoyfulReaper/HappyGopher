@@ -4,6 +4,7 @@
  * Licensed under the MIT License.
  */
 
+using JoyfulReaperLib.JRNet;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
 using System.Net;
@@ -27,13 +28,13 @@ public class HappyGopherWorker(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        IPAddress iPAddress = ParseListenAddress(options.Value.ListenAddress);
-        _listener = new TcpListener(iPAddress, options.Value.Port);
+        IPAddress ipAddress = IPAddressUtils.ParseListenAddress(options.Value.ListenAddress);
+        _listener = new TcpListener(ipAddress, options.Value.Port);
         _listener.Start();
 
         logger.LogInformation(
             "HappyGopher Server Listening on {address}:{port}; content root is {ContentRoot}",
-            iPAddress,
+            ipAddress,
             options.Value.Port,
             gopherContentStore.ContentRoot
         );
@@ -191,26 +192,4 @@ public class HappyGopherWorker(
             options.Value.MaxSelectorBytes,
             options.Value.RequestTimeoutSeconds,
             stoppingToken);
-
-    private static IPAddress ParseListenAddress(string value)
-    {
-        if (value is "*" or "+" or "0.0.0.0")
-        {
-            return IPAddress.Any;
-        }
-
-        if (value == "::")
-        {
-            return IPAddress.IPv6Any;
-        }
-
-        if (!IPAddress.TryParse(value, out IPAddress? address))
-        {
-            throw new InvalidOperationException(
-                $"HappyGopher: Invalid listen address: {value}."
-            );
-        }
-
-        return address;
-    }
 }
