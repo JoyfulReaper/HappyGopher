@@ -9,5 +9,6 @@ namespace HappyGopher;
 internal sealed record SelectorServedEvent(
     string Selector,
     string ResponseType,
+    string Remote,
     long DurationMilliseconds,
     bool Succeeded);

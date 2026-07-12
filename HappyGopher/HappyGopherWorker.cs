@@ -201,32 +201,34 @@ public class HappyGopherWorker(
                     connectionId,
                     remote);
             }
+
+            stopwatch.Stop();
+            if (selector is null || responseKind is null)
+            {
+                return;
+            }
+
+            var succeeded =
+                responseCompleted &&
+                responseKind is not GopherResponseKind.InvalidSelector &&
+                responseKind is not GopherResponseKind.NotFound;
+
+            await PublishSelectorServedTelemetryAsync(
+                selector,
+                responseKind.Value,
+                remote,
+                stopwatch.ElapsedMilliseconds,
+                succeeded,
+                occurredAt,
+                correlationId,
+                stoppingToken);
         }
-
-        stopwatch.Stop();
-        if (selector is null || responseKind is null)
-        {
-            return;
-        }
-
-        var succeeded =
-            responseCompleted &&
-            responseKind is not GopherResponseKind.InvalidSelector &&
-            responseKind is not GopherResponseKind.NotFound;
-
-        await PublishSelectorServedTelemetryAsync(
-            selector,
-            responseKind.Value,
-            stopwatch.ElapsedMilliseconds,
-            succeeded,
-            occurredAt,
-            correlationId,
-            stoppingToken);
     }
 
     private async Task PublishSelectorServedTelemetryAsync(
         string selector,
         GopherResponseKind responseKind,
+        EndPoint? remote,
         long durationMilliseconds,
         bool succeeded,
         DateTimeOffset occurredAt,
@@ -240,6 +242,7 @@ public class HappyGopherWorker(
                 payload: new SelectorServedEvent(
                     selector,
                     ToResponseType(responseKind),
+                    remote?.ToString() ?? "unknown",
                     durationMilliseconds,
                     succeeded),
                 occurredAt,
