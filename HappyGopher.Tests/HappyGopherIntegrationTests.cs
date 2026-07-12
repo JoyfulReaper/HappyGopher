@@ -4,6 +4,7 @@
  * Licensed under the MIT License.
  */
 
+using HappyGopher.MissionControl;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using System.Net;
@@ -14,6 +15,25 @@ namespace HappyGopher.Tests;
 
 public sealed class HappyGopherIntegrationTests
 {
+    private sealed class NullMissionControlClient : IMissionControlClient
+    {
+        public static NullMissionControlClient Instance { get; } = new();
+
+        private NullMissionControlClient()
+        {
+        }
+
+        public Task<bool> TryPublishAsync<TPayload>(
+            string eventType,
+            TPayload payload,
+            DateTimeOffset occurredAt,
+            string? correlationId = null,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(false);
+        }
+    }
+
     private static readonly Encoding WireEncoding = new UTF8Encoding(false);
 
     [Fact]
@@ -113,8 +133,8 @@ public sealed class HappyGopherIntegrationTests
             HappyGopherWorker worker = new(
                 NullLogger<HappyGopherWorker>.Instance,
                 Options.Create(options),
-                store);
-
+                store,
+                NullMissionControlClient.Instance);
             await worker.StartAsync(CancellationToken.None);
             await WaitForServerAsync(port);
             return new TestGopherServer(content, port, worker);

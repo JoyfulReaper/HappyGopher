@@ -4,9 +4,11 @@
  * Licensed under the MIT License.
  */
 
+using HappyGopher.MissionControl;
 using JoyfulReaperLib.JRNet;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 
@@ -15,7 +17,8 @@ namespace HappyGopher;
 public class HappyGopherWorker(
     ILogger<HappyGopherWorker> logger,
     IOptions<HappyGopherOptions> options,
-    GopherContentStore gopherContentStore) : BackgroundService
+    GopherContentStore gopherContentStore,
+    IMissionControlClient missionControlClient) : BackgroundService
 {
 
     private TcpListener? _listener;
@@ -116,6 +119,14 @@ public class HappyGopherWorker(
         TcpClient client,
         CancellationToken stoppingToken)
     {
+        var occurredAt = DateTimeOffset.UtcNow;
+        var stopwatch = Stopwatch.StartNew();
+        var correlationId = Guid.NewGuid().ToString("N");
+
+        string? selector = null;
+        GopherResponseKind? responseKind = null;
+        bool responseCompleted = false;
+
         using (client)
         {
             client.NoDelay = true;
@@ -132,7 +143,9 @@ public class HappyGopherWorker(
                 }
 
                 int tabIndex = request.IndexOf("\t");
-                string selector = tabIndex >= 0 ? request[..tabIndex] : request;
+                selector = tabIndex >= 0
+                    ? request[..tabIndex]
+                    : request;
 
                 logger.LogDebug(
                     "Connection {ConnectionId} from {Remote} requested selector {Selector}",
@@ -140,8 +153,14 @@ public class HappyGopherWorker(
                     remote,
                     selector);
 
-                await gopherContentStore.WriteResponseAsync(selector, stream, stoppingToken);
+                responseKind =
+                    await gopherContentStore.WriteResponseAsync(
+                        selector,
+                        stream,
+                        stoppingToken);
+
                 await stream.FlushAsync(stoppingToken);
+                responseCompleted = true;
             }
             catch (OperationCanceledException)
             {
@@ -184,6 +203,56 @@ public class HappyGopherWorker(
             }
         }
 
+        stopwatch.Stop();
+        if (selector is null || responseKind is null)
+        {
+            return;
+        }
+
+        var succeeded =
+            responseCompleted &&
+            responseKind is not GopherResponseKind.InvalidSelector &&
+            responseKind is not GopherResponseKind.NotFound;
+
+        await missionControlClient.TryPublishAsync(
+            eventType: "happygopher.selector.served",
+            payload: new
+            {
+                selector,
+                responseType = ToResponseType(
+                    responseKind.Value),
+                durationMilliseconds =
+                    stopwatch.ElapsedMilliseconds,
+                succeeded
+            },
+            occurredAt,
+            correlationId,
+            stoppingToken);
+    }
+
+    private static string ToResponseType(
+        GopherResponseKind responseKind)
+    {
+        return responseKind switch
+        {
+            GopherResponseKind.Menu =>
+                "menu",
+
+            GopherResponseKind.Text =>
+                "text",
+
+            GopherResponseKind.Binary =>
+                "binary",
+
+            GopherResponseKind.NotFound =>
+                "not-found",
+
+            GopherResponseKind.InvalidSelector =>
+                "invalid-selector",
+
+            _ =>
+                "unknown"
+        };
     }
 
     private Task<string?> ReadSelectorLineAsync(
