@@ -214,20 +214,45 @@ public class HappyGopherWorker(
             responseKind is not GopherResponseKind.InvalidSelector &&
             responseKind is not GopherResponseKind.NotFound;
 
-        await missionControlClient.TryPublishAsync(
-            eventType: "happygopher.selector.served",
-            payload: new
-            {
-                selector,
-                responseType = ToResponseType(
-                    responseKind.Value),
-                durationMilliseconds =
-                    stopwatch.ElapsedMilliseconds,
-                succeeded
-            },
+        await PublishSelectorServedTelemetryAsync(
+            selector,
+            responseKind.Value,
+            stopwatch.ElapsedMilliseconds,
+            succeeded,
             occurredAt,
             correlationId,
             stoppingToken);
+    }
+
+    private async Task PublishSelectorServedTelemetryAsync(
+        string selector,
+        GopherResponseKind responseKind,
+        long durationMilliseconds,
+        bool succeeded,
+        DateTimeOffset occurredAt,
+        string correlationId,
+        CancellationToken stoppingToken)
+    {
+        try
+        {
+            await missionControlClient.TryPublishAsync(
+                eventType: "happygopher.selector.served",
+                payload: new SelectorServedEvent(
+                    selector,
+                    ToResponseType(responseKind),
+                    durationMilliseconds,
+                    succeeded),
+                occurredAt,
+                correlationId,
+                stoppingToken);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(
+                exception,
+                "Failed to publish telemetry for selector {Selector}.",
+                selector);
+        }
     }
 
     private static string ToResponseType(
