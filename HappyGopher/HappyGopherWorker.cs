@@ -132,6 +132,9 @@ public class HappyGopherWorker(
             client.NoDelay = true;
             EndPoint? remote = client.Client.RemoteEndPoint;
 
+            bool isIgnoredTelemetrySource =
+                IsIgnoredTelemetrySource(remote);
+
             try
             {
                 await using NetworkStream stream = client.GetStream();
@@ -213,6 +216,15 @@ public class HappyGopherWorker(
                 responseKind is not GopherResponseKind.InvalidSelector &&
                 responseKind is not GopherResponseKind.NotFound;
 
+            if (isIgnoredTelemetrySource)
+            {
+                logger.LogDebug(
+                    "Skipping telemetry for monitoring request from {Remote}.",
+                    remote);
+
+                return;
+            }
+
             await PublishSelectorServedTelemetryAsync(
                 selector,
                 responseKind.Value,
@@ -223,6 +235,24 @@ public class HappyGopherWorker(
                 correlationId,
                 stoppingToken);
         }
+    }
+
+    private bool IsIgnoredTelemetrySource(
+    EndPoint? remote)
+    {
+        string? remoteAddress =
+            (remote as IPEndPoint)?
+                .Address
+                .MapToIPv4()
+                .ToString();
+
+        return
+            !string.IsNullOrWhiteSpace(
+                options.Value.TelemetryIgnoredRemoteAddress) &&
+            string.Equals(
+                remoteAddress,
+                options.Value.TelemetryIgnoredRemoteAddress,
+                StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task PublishSelectorServedTelemetryAsync(

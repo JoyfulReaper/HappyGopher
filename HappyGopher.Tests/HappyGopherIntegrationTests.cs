@@ -63,6 +63,34 @@ public sealed class HappyGopherIntegrationTests
     private static readonly Encoding WireEncoding = new UTF8Encoding(false);
 
     [Fact]
+    public async Task Server_DoesNotPublishTelemetryForIgnoredRemoteAddress()
+    {
+        RecordingMissionControlClient recording =
+            new();
+
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(
+                missionControlClient: recording,
+                telemetryIgnoredRemoteAddress:
+                    IPAddress.Loopback.ToString());
+
+        server.Content.WriteText(
+            "gophermap",
+            "iRoot");
+
+        string response =
+            await server.RequestAsync(string.Empty);
+
+        Assert.Equal(
+            "iRoot\tfake\t(NULL)\t0\r\n.\r\n",
+            response);
+
+        await Task.Delay(100);
+
+        Assert.Empty(recording.PublishedEvents);
+    }
+
+    [Fact]
     public async Task Server_ReturnsRootSelectorResponse()
     {
         await using TestGopherServer server = await TestGopherServer.StartAsync();
@@ -264,7 +292,8 @@ public sealed class HappyGopherIntegrationTests
         public IMissionControlClient MissionControlClient { get; }
 
         public static async Task<TestGopherServer> StartAsync(
-            IMissionControlClient? missionControlClient = null)
+            IMissionControlClient? missionControlClient = null,
+            string? telemetryIgnoredRemoteAddress = null)
         {
             TestContentStore content = new();
             int port = GetAvailablePort();
