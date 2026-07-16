@@ -85,8 +85,6 @@ public sealed class HappyGopherIntegrationTests
             "iRoot\tfake\t(NULL)\t0\r\n.\r\n",
             response);
 
-        await Task.Delay(100);
-
         Assert.Empty(recording.PublishedEvents);
     }
 
@@ -303,7 +301,9 @@ public sealed class HappyGopherIntegrationTests
                 PublicHost = "127.0.0.1",
                 Port = port,
                 ContentRoot = content.Root,
-                RequestTimeoutSeconds = 5
+                RequestTimeoutSeconds = 5,
+                TelemetryIgnoredRemoteAddress =
+                    telemetryIgnoredRemoteAddress
             };
 
             missionControlClient ??= NullMissionControlClient.Instance;
