@@ -46,7 +46,7 @@ public sealed class GopherContentStore
 
     public string ContentRoot { get; }
 
-    public async Task WriteResponseAsync(
+    public async Task<GopherResponseKind> WriteResponseAsync(
         string selector,
         Stream output,
         CancellationToken cancellationToken)
@@ -56,24 +56,25 @@ public sealed class GopherContentStore
         if (path is null)
         {
             await WriteErrorAsync(output, "Invalid Selector.", cancellationToken);
-            return;
+            return GopherResponseKind.InvalidSelector;
         }
 
         if (Directory.Exists(path))
         {
             await WriteDirectoryMenuAsync(path, output, cancellationToken);
-            return;
+            return GopherResponseKind.Menu;
         }
 
         if (!File.Exists(path) || IsInternalFile(path))
         {
             await WriteErrorAsync(output, "Selector not found.", cancellationToken);
-            return;
+            return GopherResponseKind.NotFound;
         }
 
         if (IsTextFile(path))
         {
             await WriteTextFileAsync(path, output, cancellationToken);
+            return GopherResponseKind.Text;
         }
         else
         {
@@ -87,6 +88,7 @@ public sealed class GopherContentStore
             );
 
             await file.CopyToAsync(output, 64 * 1024, cancellationToken);
+            return GopherResponseKind.Binary;
         }
     }
 

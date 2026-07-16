@@ -5,6 +5,7 @@
  */
 
 using HappyGopher;
+using JoyfulReaperLib.MissionControl;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -12,7 +13,6 @@ builder.Services.AddWindowsService(options =>
 {
     options.ServiceName = "Happy Gopher Server";
 });
-
 
 builder.Services
     .AddOptions<HappyGopherOptions>()
@@ -24,6 +24,10 @@ builder.Services
     .Validate(options => !string.IsNullOrWhiteSpace(options.ContentRoot), "Gopher:ContentRoot must not be empty.")
     .Validate(options => !string.IsNullOrWhiteSpace(options.PublicHost), "Gopher:PublicHost must not be empty.")
     .ValidateOnStart();
+
+builder.Services.AddMissionControlClient(
+    builder.Configuration.GetSection(
+        MissionControlClientOptions.SectionName));
 
 builder.Services.AddHostedService<HappyGopherWorker>();
 builder.Services.AddSingleton<GopherContentStore>();

@@ -16,4 +16,5 @@ public sealed class HappyGopherOptions
     public int MaxConcurrentConnections { get; init; } = 64;
     public int MaxSelectorBytes { get; init; } = 4096;
     public int RequestTimeoutSeconds { get; init; } = 15;
+    public string? TelemetryIgnoredRemoteAddress { get; init; }
 }

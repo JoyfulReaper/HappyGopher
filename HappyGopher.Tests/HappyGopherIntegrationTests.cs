@@ -4,6 +4,7 @@
  * Licensed under the MIT License.
  */
 
+using JoyfulReaperLib.MissionControl;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using System.Net;
@@ -14,7 +15,78 @@ namespace HappyGopher.Tests;
 
 public sealed class HappyGopherIntegrationTests
 {
+    private sealed class NullMissionControlClient : IMissionControlClient
+    {
+        public static NullMissionControlClient Instance { get; } = new();
+
+        private NullMissionControlClient()
+        {
+        }
+
+        public Task<bool> TryPublishAsync<TPayload>(
+            string eventType,
+            TPayload payload,
+            DateTimeOffset occurredAt,
+            string? correlationId = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+    }
+
+    private sealed class FalseMissionControlClient : IMissionControlClient
+    {
+        public static FalseMissionControlClient Instance { get; } = new();
+
+        private FalseMissionControlClient()
+        {
+        }
+
+        public Task<bool> TryPublishAsync<TPayload>(
+            string eventType,
+            TPayload payload,
+            DateTimeOffset occurredAt,
+            string? correlationId = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+    }
+
+    private sealed class ThrowingMissionControlClient : IMissionControlClient
+    {
+        public Task<bool> TryPublishAsync<TPayload>(
+            string eventType,
+            TPayload payload,
+            DateTimeOffset occurredAt,
+            string? correlationId = null,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Telemetry failure");
+    }
+
     private static readonly Encoding WireEncoding = new UTF8Encoding(false);
+
+    [Fact]
+    public async Task Server_DoesNotPublishTelemetryForIgnoredRemoteAddress()
+    {
+        RecordingMissionControlClient recording =
+            new();
+
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(
+                missionControlClient: recording,
+                telemetryIgnoredRemoteAddress:
+                    IPAddress.Loopback.ToString());
+
+        server.Content.WriteText(
+            "gophermap",
+            "iRoot");
+
+        string response =
+            await server.RequestAsync(string.Empty);
+
+        Assert.Equal(
+            "iRoot\tfake\t(NULL)\t0\r\n.\r\n",
+            response);
+
+        Assert.Empty(recording.PublishedEvents);
+    }
 
     [Fact]
     public async Task Server_ReturnsRootSelectorResponse()
@@ -25,6 +97,31 @@ public sealed class HappyGopherIntegrationTests
         string response = await server.RequestAsync(string.Empty);
 
         Assert.Equal("iRoot\tfake\t(NULL)\t0\r\n.\r\n", response);
+    }
+
+    [Fact]
+    public async Task Server_PublishesRootSelectorTelemetry()
+    {
+        RecordingMissionControlClient recording = new();
+        await using TestGopherServer server = await TestGopherServer.StartAsync(recording);
+        server.Content.WriteText("gophermap", "iRoot");
+
+        string response = await server.RequestAsync(string.Empty);
+
+        Assert.Equal("iRoot\tfake\t(NULL)\t0\r\n.\r\n", response);
+
+        await recording.WaitForPublishedEventCountAsync(1);
+
+        RecordedMissionControlEvent telemetry = Assert.Single(recording.PublishedEvents);
+        Assert.Equal("happygopher.selector.served", telemetry.EventType);
+        Assert.NotEqual(default, telemetry.OccurredAt);
+        Assert.False(string.IsNullOrWhiteSpace(telemetry.CorrelationId));
+
+        SelectorServedEvent payload = Assert.IsType<SelectorServedEvent>(telemetry.Payload);
+        Assert.Equal(string.Empty, payload.Selector);
+        Assert.Equal("menu", payload.ResponseType);
+        Assert.True(payload.Succeeded);
+        Assert.True(payload.DurationMilliseconds >= 0);
     }
 
     [Fact]
@@ -39,6 +136,46 @@ public sealed class HappyGopherIntegrationTests
     }
 
     [Fact]
+    public async Task Server_PublishesTextFileTelemetry()
+    {
+        RecordingMissionControlClient recording = new();
+        await using TestGopherServer server = await TestGopherServer.StartAsync(recording);
+        server.Content.WriteText("about.txt", "About");
+
+        string response = await server.RequestAsync("/about.txt");
+
+        Assert.Equal("About\r\n.\r\n", response);
+
+        await recording.WaitForPublishedEventCountAsync(1);
+
+        RecordedMissionControlEvent telemetry = Assert.Single(recording.PublishedEvents);
+        SelectorServedEvent payload = Assert.IsType<SelectorServedEvent>(telemetry.Payload);
+        Assert.Equal("/about.txt", payload.Selector);
+        Assert.Equal("text", payload.ResponseType);
+        Assert.True(payload.Succeeded);
+    }
+
+    [Fact]
+    public async Task Server_PublishesDirectoryTelemetry()
+    {
+        RecordingMissionControlClient recording = new();
+        await using TestGopherServer server = await TestGopherServer.StartAsync(recording);
+        server.Content.WriteText("downloads/gophermap", "iDownloads");
+
+        string response = await server.RequestAsync("/downloads");
+
+        Assert.Contains("iDownloads", response);
+
+        await recording.WaitForPublishedEventCountAsync(1);
+
+        RecordedMissionControlEvent telemetry = Assert.Single(recording.PublishedEvents);
+        SelectorServedEvent payload = Assert.IsType<SelectorServedEvent>(telemetry.Payload);
+        Assert.Equal("/downloads", payload.Selector);
+        Assert.Equal("menu", payload.ResponseType);
+        Assert.True(payload.Succeeded);
+    }
+
+    [Fact]
     public async Task Server_ReturnsMissingSelectorResponse()
     {
         await using TestGopherServer server = await TestGopherServer.StartAsync();
@@ -50,9 +187,32 @@ public sealed class HappyGopherIntegrationTests
     }
 
     [Fact]
+    public async Task Server_PublishesMissingSelectorTelemetry()
+    {
+        RecordingMissionControlClient recording = new();
+        await using TestGopherServer server = await TestGopherServer.StartAsync(recording);
+
+        string response = await server.RequestAsync("/missing.txt");
+
+        Assert.Contains("3Selector not found.\terror\t127.0.0.1\t", response);
+        Assert.EndsWith(".\r\n", response);
+
+        await recording.WaitForPublishedEventCountAsync(1);
+
+        RecordedMissionControlEvent telemetry = Assert.Single(recording.PublishedEvents);
+        Assert.Equal("happygopher.selector.served", telemetry.EventType);
+
+        SelectorServedEvent payload = Assert.IsType<SelectorServedEvent>(telemetry.Payload);
+        Assert.Equal("/missing.txt", payload.Selector);
+        Assert.Equal("not-found", payload.ResponseType);
+        Assert.False(payload.Succeeded);
+    }
+
+    [Fact]
     public async Task Server_HandlesMultipleConcurrentClients()
     {
-        await using TestGopherServer server = await TestGopherServer.StartAsync();
+        RecordingMissionControlClient recording = new();
+        await using TestGopherServer server = await TestGopherServer.StartAsync(recording);
         server.Content.WriteText("about.txt", "About");
 
         Task<string>[] requests = Enumerable.Range(0, 8)
@@ -60,8 +220,40 @@ public sealed class HappyGopherIntegrationTests
             .ToArray();
 
         string[] responses = await Task.WhenAll(requests);
+        await recording.WaitForPublishedEventCountAsync(requests.Length);
 
         Assert.All(responses, response => Assert.Equal("About\r\n.\r\n", response));
+        Assert.Equal(requests.Length, recording.PublishedEvents.Count);
+        Assert.All(recording.PublishedEvents, telemetry =>
+        {
+            Assert.Equal("happygopher.selector.served", telemetry.EventType);
+            SelectorServedEvent payload = Assert.IsType<SelectorServedEvent>(telemetry.Payload);
+            Assert.Equal("/about.txt", payload.Selector);
+            Assert.Equal("text", payload.ResponseType);
+            Assert.True(payload.Succeeded);
+        });
+    }
+
+    [Fact]
+    public async Task Server_IgnoresMissionControlClientReturningFalse()
+    {
+        await using TestGopherServer server = await TestGopherServer.StartAsync(FalseMissionControlClient.Instance);
+        server.Content.WriteText("about.txt", "About");
+
+        string response = await server.RequestAsync("/about.txt");
+
+        Assert.Equal("About\r\n.\r\n", response);
+    }
+
+    [Fact]
+    public async Task Server_IgnoresMissionControlClientThrowing()
+    {
+        await using TestGopherServer server = await TestGopherServer.StartAsync(new ThrowingMissionControlClient());
+        server.Content.WriteText("about.txt", "About");
+
+        string response = await server.RequestAsync("/about.txt");
+
+        Assert.Equal("About\r\n.\r\n", response);
     }
 
     [Fact]
@@ -84,17 +276,22 @@ public sealed class HappyGopherIntegrationTests
         private TestGopherServer(
             TestContentStore content,
             int port,
-            HappyGopherWorker worker)
+            HappyGopherWorker worker,
+            IMissionControlClient missionControlClient)
         {
             Content = content;
             Port = port;
             _worker = worker;
+            MissionControlClient = missionControlClient;
         }
 
         public TestContentStore Content { get; }
         public int Port { get; }
+        public IMissionControlClient MissionControlClient { get; }
 
-        public static async Task<TestGopherServer> StartAsync()
+        public static async Task<TestGopherServer> StartAsync(
+            IMissionControlClient? missionControlClient = null,
+            string? telemetryIgnoredRemoteAddress = null)
         {
             TestContentStore content = new();
             int port = GetAvailablePort();
@@ -104,8 +301,12 @@ public sealed class HappyGopherIntegrationTests
                 PublicHost = "127.0.0.1",
                 Port = port,
                 ContentRoot = content.Root,
-                RequestTimeoutSeconds = 5
+                RequestTimeoutSeconds = 5,
+                TelemetryIgnoredRemoteAddress =
+                    telemetryIgnoredRemoteAddress
             };
+
+            missionControlClient ??= NullMissionControlClient.Instance;
 
             GopherContentStore store = new(
                 Options.Create(options),
@@ -113,11 +314,11 @@ public sealed class HappyGopherIntegrationTests
             HappyGopherWorker worker = new(
                 NullLogger<HappyGopherWorker>.Instance,
                 Options.Create(options),
-                store);
-
+                store,
+                missionControlClient);
             await worker.StartAsync(CancellationToken.None);
             await WaitForServerAsync(port);
-            return new TestGopherServer(content, port, worker);
+            return new TestGopherServer(content, port, worker, missionControlClient);
         }
 
         public async Task<string> RequestAsync(string selector)

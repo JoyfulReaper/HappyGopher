@@ -4,8 +4,11 @@
  * Licensed under the MIT License.
  */
 
+using JoyfulReaperLib.JRNet;
+using JoyfulReaperLib.MissionControl;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 
@@ -14,7 +17,8 @@ namespace HappyGopher;
 public class HappyGopherWorker(
     ILogger<HappyGopherWorker> logger,
     IOptions<HappyGopherOptions> options,
-    GopherContentStore gopherContentStore) : BackgroundService
+    GopherContentStore gopherContentStore,
+    IMissionControlClient missionControlClient) : BackgroundService
 {
 
     private TcpListener? _listener;
@@ -27,13 +31,13 @@ public class HappyGopherWorker(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        IPAddress iPAddress = ParseListenAddress(options.Value.ListenAddress);
-        _listener = new TcpListener(iPAddress, options.Value.Port);
+        IPAddress ipAddress = IPAddressUtils.ParseListenAddress(options.Value.ListenAddress);
+        _listener = new TcpListener(ipAddress, options.Value.Port);
         _listener.Start();
 
         logger.LogInformation(
             "HappyGopher Server Listening on {address}:{port}; content root is {ContentRoot}",
-            iPAddress,
+            ipAddress,
             options.Value.Port,
             gopherContentStore.ContentRoot
         );
@@ -103,8 +107,10 @@ public class HappyGopherWorker(
 
     public override Task StopAsync(CancellationToken cancellationToken)
     {
+        logger.LogInformation("HappyGopher Server Stopping...");
         _stopRequested = true;
         _listener?.Stop();
+
         return base.StopAsync(cancellationToken);
     }
 
@@ -113,10 +119,21 @@ public class HappyGopherWorker(
         TcpClient client,
         CancellationToken stoppingToken)
     {
+        var occurredAt = DateTimeOffset.UtcNow;
+        var stopwatch = Stopwatch.StartNew();
+        var correlationId = Guid.NewGuid().ToString("N");
+
+        string? selector = null;
+        GopherResponseKind? responseKind = null;
+        bool responseCompleted = false;
+
         using (client)
         {
             client.NoDelay = true;
             EndPoint? remote = client.Client.RemoteEndPoint;
+
+            bool isIgnoredTelemetrySource =
+                IsIgnoredTelemetrySource(remote);
 
             try
             {
@@ -129,7 +146,9 @@ public class HappyGopherWorker(
                 }
 
                 int tabIndex = request.IndexOf("\t");
-                string selector = tabIndex >= 0 ? request[..tabIndex] : request;
+                selector = tabIndex >= 0
+                    ? request[..tabIndex]
+                    : request;
 
                 logger.LogDebug(
                     "Connection {ConnectionId} from {Remote} requested selector {Selector}",
@@ -137,8 +156,14 @@ public class HappyGopherWorker(
                     remote,
                     selector);
 
-                await gopherContentStore.WriteResponseAsync(selector, stream, stoppingToken);
+                responseKind =
+                    await gopherContentStore.WriteResponseAsync(
+                        selector,
+                        stream,
+                        stoppingToken);
+
                 await stream.FlushAsync(stoppingToken);
+                responseCompleted = true;
             }
             catch (OperationCanceledException)
             {
@@ -179,8 +204,113 @@ public class HappyGopherWorker(
                     connectionId,
                     remote);
             }
-        }
 
+            stopwatch.Stop();
+            if (selector is null || responseKind is null)
+            {
+                return;
+            }
+
+            var succeeded =
+                responseCompleted &&
+                responseKind is not GopherResponseKind.InvalidSelector &&
+                responseKind is not GopherResponseKind.NotFound;
+
+            if (isIgnoredTelemetrySource)
+            {
+                logger.LogDebug(
+                    "Skipping telemetry for monitoring request from {Remote}.",
+                    remote);
+
+                return;
+            }
+
+            await PublishSelectorServedTelemetryAsync(
+                selector,
+                responseKind.Value,
+                remote,
+                stopwatch.ElapsedMilliseconds,
+                succeeded,
+                occurredAt,
+                correlationId,
+                stoppingToken);
+        }
+    }
+
+    private bool IsIgnoredTelemetrySource(
+    EndPoint? remote)
+    {
+        string? remoteAddress =
+            (remote as IPEndPoint)?
+                .Address
+                .MapToIPv4()
+                .ToString();
+
+        return
+            !string.IsNullOrWhiteSpace(
+                options.Value.TelemetryIgnoredRemoteAddress) &&
+            string.Equals(
+                remoteAddress,
+                options.Value.TelemetryIgnoredRemoteAddress,
+                StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task PublishSelectorServedTelemetryAsync(
+        string selector,
+        GopherResponseKind responseKind,
+        EndPoint? remote,
+        long durationMilliseconds,
+        bool succeeded,
+        DateTimeOffset occurredAt,
+        string correlationId,
+        CancellationToken stoppingToken)
+    {
+        try
+        {
+            await missionControlClient.TryPublishAsync(
+                eventType: "happygopher.selector.served",
+                payload: new SelectorServedEvent(
+                    selector,
+                    ToResponseType(responseKind),
+                    remote?.ToString() ?? "unknown",
+                    durationMilliseconds,
+                    succeeded),
+                occurredAt,
+                correlationId,
+                stoppingToken);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(
+                exception,
+                "Failed to publish telemetry for selector {Selector}.",
+                selector);
+        }
+    }
+
+    private static string ToResponseType(
+        GopherResponseKind responseKind)
+    {
+        return responseKind switch
+        {
+            GopherResponseKind.Menu =>
+                "menu",
+
+            GopherResponseKind.Text =>
+                "text",
+
+            GopherResponseKind.Binary =>
+                "binary",
+
+            GopherResponseKind.NotFound =>
+                "not-found",
+
+            GopherResponseKind.InvalidSelector =>
+                "invalid-selector",
+
+            _ =>
+                "unknown"
+        };
     }
 
     private Task<string?> ReadSelectorLineAsync(
@@ -191,26 +321,4 @@ public class HappyGopherWorker(
             options.Value.MaxSelectorBytes,
             options.Value.RequestTimeoutSeconds,
             stoppingToken);
-
-    private static IPAddress ParseListenAddress(string value)
-    {
-        if (value is "*" or "+" or "0.0.0.0")
-        {
-            return IPAddress.Any;
-        }
-
-        if (value == "::")
-        {
-            return IPAddress.IPv6Any;
-        }
-
-        if (!IPAddress.TryParse(value, out IPAddress? address))
-        {
-            throw new InvalidOperationException(
-                $"HappyGopher: Invalid listen address: {value}."
-            );
-        }
-
-        return address;
-    }
 }
