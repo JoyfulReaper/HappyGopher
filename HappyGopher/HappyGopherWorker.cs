@@ -20,6 +20,8 @@ public class HappyGopherWorker(
     GopherContentStore gopherContentStore,
     IMissionControlClient missionControlClient) : BackgroundService
 {
+    private static readonly TimeSpan TelemetryPublishTimeout =
+        TimeSpan.FromSeconds(2);
 
     private TcpListener? _listener;
     private readonly ConcurrentDictionary<long, Task> _activeConnections = new();
@@ -77,7 +79,6 @@ public class HappyGopherWorker(
                     completedTask =>
                     {
                         _activeConnections.TryRemove(connectionId, out _);
-                        _connectionLimit.Release();
                     },
                     CancellationToken.None,
                     TaskContinuationOptions.ExecuteSynchronously,
@@ -126,113 +127,129 @@ public class HappyGopherWorker(
         string? selector = null;
         GopherResponseKind? responseKind = null;
         bool responseCompleted = false;
+        EndPoint? remote = null;
+        bool isIgnoredTelemetrySource = false;
+        SelectorServedTelemetryResult? telemetry = null;
 
-        using (client)
+        try
         {
-            client.NoDelay = true;
-            EndPoint? remote = client.Client.RemoteEndPoint;
-
-            bool isIgnoredTelemetrySource =
-                IsIgnoredTelemetrySource(remote);
-
-            try
+            using (client)
             {
-                await using NetworkStream stream = client.GetStream();
-                string? request = await ReadSelectorLineAsync(stream, stoppingToken);
+                client.NoDelay = true;
+                remote = client.Client.RemoteEndPoint;
 
-                if (request is null)
+                isIgnoredTelemetrySource =
+                    IsIgnoredTelemetrySource(remote);
+
+                try
+                {
+                    await using NetworkStream stream = client.GetStream();
+                    string? request = await ReadSelectorLineAsync(stream, stoppingToken);
+
+                    if (request is null)
+                    {
+                        return;
+                    }
+
+                    int tabIndex = request.IndexOf("\t");
+                    selector = tabIndex >= 0
+                        ? request[..tabIndex]
+                        : request;
+
+                    logger.LogDebug(
+                        "Connection {ConnectionId} from {Remote} requested selector {Selector}",
+                        connectionId,
+                        remote,
+                        selector);
+
+                    responseKind =
+                        await gopherContentStore.WriteResponseAsync(
+                            selector,
+                            stream,
+                            stoppingToken);
+
+                    await stream.FlushAsync(stoppingToken);
+                    responseCompleted = true;
+                }
+                catch (OperationCanceledException)
+                {
+                    logger.LogWarning(
+                        "Connection {ConnectionId} from {Remote} timed out.",
+                        connectionId,
+                        remote);
+                }
+                catch (InvalidDataException exception)
+                {
+                    logger.LogWarning(
+                        exception,
+                        "Rejected malformed request on connection {ConnectionId} from {Remote}.",
+                        connectionId,
+                        remote);
+                }
+                catch (IOException exception)
+                {
+                    logger.LogDebug(
+                        exception,
+                        "Connection {ConnectionId} from {Remote} ended early.",
+                        connectionId,
+                        remote);
+                }
+                catch (SocketException exception)
+                {
+                    logger.LogDebug(
+                        exception,
+                        "Socket error on connection {ConnectionId} from {Remote}.",
+                        connectionId,
+                        remote);
+                }
+                catch (Exception exception)
+                {
+                    logger.LogError(
+                        exception,
+                        "Unhandled error on connection {ConnectionId} from {Remote}.",
+                        connectionId,
+                        remote);
+                }
+
+                stopwatch.Stop();
+                if (selector is null || responseKind is null)
                 {
                     return;
                 }
 
-                int tabIndex = request.IndexOf("\t");
-                selector = tabIndex >= 0
-                    ? request[..tabIndex]
-                    : request;
+                var succeeded =
+                    responseCompleted &&
+                    responseKind is not GopherResponseKind.InvalidSelector &&
+                    responseKind is not GopherResponseKind.NotFound;
 
-                logger.LogDebug(
-                    "Connection {ConnectionId} from {Remote} requested selector {Selector}",
-                    connectionId,
-                    remote,
-                    selector);
+                if (isIgnoredTelemetrySource)
+                {
+                    logger.LogDebug(
+                        "Skipping telemetry for monitoring request from {Remote}.",
+                        remote);
 
-                responseKind =
-                    await gopherContentStore.WriteResponseAsync(
-                        selector,
-                        stream,
-                        stoppingToken);
+                    return;
+                }
 
-                await stream.FlushAsync(stoppingToken);
-                responseCompleted = true;
+                telemetry = new SelectorServedTelemetryResult(
+                    selector,
+                    responseKind.Value,
+                    remote?.ToString() ?? "unknown",
+                    stopwatch.ElapsedMilliseconds,
+                    succeeded,
+                    occurredAt,
+                    correlationId);
             }
-            catch (OperationCanceledException)
-            {
-                logger.LogWarning(
-                    "Connection {ConnectionId} from {Remote} timed out.",
-                    connectionId,
-                    remote);
-            }
-            catch (InvalidDataException exception)
-            {
-                logger.LogWarning(
-                    exception,
-                    "Rejected malformed request on connection {ConnectionId} from {Remote}.",
-                    connectionId,
-                    remote);
-            }
-            catch (IOException exception)
-            {
-                logger.LogDebug(
-                    exception,
-                    "Connection {ConnectionId} from {Remote} ended early.",
-                    connectionId,
-                    remote);
-            }
-            catch (SocketException exception)
-            {
-                logger.LogDebug(
-                    exception,
-                    "Socket error on connection {ConnectionId} from {Remote}.",
-                    connectionId,
-                    remote);
-            }
-            catch (Exception exception)
-            {
-                logger.LogError(
-                    exception,
-                    "Unhandled error on connection {ConnectionId} from {Remote}.",
-                    connectionId,
-                    remote);
-            }
+        }
+        finally
+        {
+            _connectionLimit.Release();
+        }
 
-            stopwatch.Stop();
-            if (selector is null || responseKind is null)
-            {
-                return;
-            }
-
-            var succeeded =
-                responseCompleted &&
-                responseKind is not GopherResponseKind.InvalidSelector &&
-                responseKind is not GopherResponseKind.NotFound;
-
-            if (isIgnoredTelemetrySource)
-            {
-                logger.LogDebug(
-                    "Skipping telemetry for monitoring request from {Remote}.",
-                    remote);
-
-                return;
-            }
-
+        if (telemetry is not null)
+        {
             await PublishSelectorServedTelemetryAsync(
-                selector,
-                responseKind.Value,
-                remote,
-                stopwatch.ElapsedMilliseconds,
-                succeeded,
-                occurredAt,
-                correlationId,
+                telemetry,
                 stoppingToken);
         }
     }
@@ -256,35 +273,55 @@ public class HappyGopherWorker(
     }
 
     private async Task PublishSelectorServedTelemetryAsync(
-        string selector,
-        GopherResponseKind responseKind,
-        EndPoint? remote,
-        long durationMilliseconds,
-        bool succeeded,
-        DateTimeOffset occurredAt,
-        string correlationId,
+        SelectorServedTelemetryResult telemetry,
         CancellationToken stoppingToken)
     {
+        using CancellationTokenSource timeoutTokenSource =
+            new(TelemetryPublishTimeout);
+        using CancellationTokenSource publishTokenSource =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                stoppingToken,
+                timeoutTokenSource.Token);
+
         try
         {
-            await missionControlClient.TryPublishAsync(
+            bool published = await missionControlClient.TryPublishAsync(
                 eventType: "happygopher.selector.served",
                 payload: new SelectorServedEvent(
-                    selector,
-                    ToResponseType(responseKind),
-                    remote?.ToString() ?? "unknown",
-                    durationMilliseconds,
-                    succeeded),
-                occurredAt,
-                correlationId,
-                stoppingToken);
+                    telemetry.Selector,
+                    ToResponseType(telemetry.ResponseKind),
+                    telemetry.Remote,
+                    telemetry.DurationMilliseconds,
+                    telemetry.Succeeded),
+                telemetry.OccurredAt,
+                telemetry.CorrelationId,
+                publishTokenSource.Token);
+
+            if (!published)
+            {
+                logger.LogWarning(
+                    "Mission Control did not accept telemetry for selector {Selector}.",
+                    telemetry.Selector);
+            }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            logger.LogDebug(
+                "Telemetry publishing stopped for selector {Selector}.",
+                telemetry.Selector);
+        }
+        catch (OperationCanceledException)
+        {
+            logger.LogWarning(
+                "Timed out publishing telemetry for selector {Selector}.",
+                telemetry.Selector);
         }
         catch (Exception exception)
         {
             logger.LogWarning(
                 exception,
                 "Failed to publish telemetry for selector {Selector}.",
-                selector);
+                telemetry.Selector);
         }
     }
 
@@ -321,4 +358,13 @@ public class HappyGopherWorker(
             options.Value.MaxSelectorBytes,
             options.Value.RequestTimeoutSeconds,
             stoppingToken);
+
+    private sealed record SelectorServedTelemetryResult(
+        string Selector,
+        GopherResponseKind ResponseKind,
+        string Remote,
+        long DurationMilliseconds,
+        bool Succeeded,
+        DateTimeOffset OccurredAt,
+        string CorrelationId);
 }

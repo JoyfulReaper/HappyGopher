@@ -60,6 +60,87 @@ public sealed class HappyGopherIntegrationTests
             throw new InvalidOperationException("Telemetry failure");
     }
 
+    private sealed class BlockingMissionControlClient : IMissionControlClient
+    {
+        private readonly TaskCompletionSource _release =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly SemaphoreSlim _startedSignal = new(0);
+        private readonly SemaphoreSlim _finishedSignal = new(0);
+        private readonly bool _throwAfterRelease;
+        private readonly bool _publishResult;
+        private int _startedCount;
+        private int _finishedCount;
+        private int _canceledCount;
+
+        public BlockingMissionControlClient(
+            bool throwAfterRelease = false,
+            bool publishResult = true)
+        {
+            _throwAfterRelease = throwAfterRelease;
+            _publishResult = publishResult;
+        }
+
+        public int StartedCount => Volatile.Read(ref _startedCount);
+        public int FinishedCount => Volatile.Read(ref _finishedCount);
+        public int CanceledCount => Volatile.Read(ref _canceledCount);
+
+        public async Task<bool> TryPublishAsync<TPayload>(
+            string eventType,
+            TPayload payload,
+            DateTimeOffset occurredAt,
+            string? correlationId = null,
+            CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref _startedCount);
+            _startedSignal.Release();
+
+            try
+            {
+                await _release.Task.WaitAsync(cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                Interlocked.Increment(ref _canceledCount);
+                throw;
+            }
+            finally
+            {
+                Interlocked.Increment(ref _finishedCount);
+                _finishedSignal.Release();
+            }
+
+            if (_throwAfterRelease)
+            {
+                throw new InvalidOperationException("Telemetry failure");
+            }
+
+            return _publishResult;
+        }
+
+        public void Release() =>
+            _release.TrySetResult();
+
+        public async Task WaitForStartedCountAsync(
+            int expectedCount,
+            CancellationToken cancellationToken)
+        {
+            while (StartedCount < expectedCount)
+            {
+                await _startedSignal.WaitAsync(cancellationToken);
+            }
+        }
+
+        public async Task WaitForFinishedCountAsync(
+            int expectedCount,
+            CancellationToken cancellationToken)
+        {
+            while (FinishedCount < expectedCount)
+            {
+                await _finishedSignal.WaitAsync(cancellationToken);
+            }
+        }
+    }
+
     private static readonly Encoding WireEncoding = new UTF8Encoding(false);
 
     [Fact]
@@ -122,6 +203,50 @@ public sealed class HappyGopherIntegrationTests
         Assert.Equal("menu", payload.ResponseType);
         Assert.True(payload.Succeeded);
         Assert.True(payload.DurationMilliseconds >= 0);
+    }
+
+    [Fact]
+    public async Task Server_SendsEofBeforeTelemetryCompletes()
+    {
+        BlockingMissionControlClient blocking = new();
+        await using TestGopherServer server = await TestGopherServer.StartAsync(blocking);
+        server.Content.WriteText("gophermap", "iRoot");
+
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
+
+        string response = await server.RequestAsync(string.Empty);
+        await blocking.WaitForStartedCountAsync(1, timeout.Token);
+
+        Assert.Equal("iRoot\tfake\t(NULL)\t0\r\n.\r\n", response);
+        Assert.Equal(0, blocking.FinishedCount);
+
+        blocking.Release();
+        await blocking.WaitForFinishedCountAsync(1, timeout.Token);
+    }
+
+    [Fact]
+    public async Task Server_ReleasesConnectionSlotBeforeTelemetryCompletes()
+    {
+        BlockingMissionControlClient blocking = new();
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(
+                missionControlClient: blocking,
+                maxConcurrentConnections: 1);
+        server.Content.WriteText("about.txt", "About");
+
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
+
+        string firstResponse = await server.RequestAsync("/about.txt");
+        await blocking.WaitForStartedCountAsync(1, timeout.Token);
+        Assert.Equal(0, blocking.FinishedCount);
+
+        string secondResponse = await server.RequestAsync("/about.txt");
+
+        Assert.Equal("About\r\n.\r\n", firstResponse);
+        Assert.Equal("About\r\n.\r\n", secondResponse);
+
+        blocking.Release();
+        await blocking.WaitForFinishedCountAsync(2, timeout.Token);
     }
 
     [Fact]
@@ -257,6 +382,65 @@ public sealed class HappyGopherIntegrationTests
     }
 
     [Fact]
+    public async Task Server_ContinuesServingAfterTelemetryException()
+    {
+        BlockingMissionControlClient blocking = new(throwAfterRelease: true);
+        await using TestGopherServer server = await TestGopherServer.StartAsync(blocking);
+        server.Content.WriteText("about.txt", "About");
+
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
+
+        string firstResponse = await server.RequestAsync("/about.txt");
+        await blocking.WaitForStartedCountAsync(1, timeout.Token);
+
+        blocking.Release();
+        await blocking.WaitForFinishedCountAsync(1, timeout.Token);
+
+        string secondResponse = await server.RequestAsync("/about.txt");
+        await blocking.WaitForStartedCountAsync(2, timeout.Token);
+
+        Assert.Equal("About\r\n.\r\n", firstResponse);
+        Assert.Equal("About\r\n.\r\n", secondResponse);
+    }
+
+    [Fact]
+    public async Task Server_TelemetryTimeoutDoesNotHangHandler()
+    {
+        BlockingMissionControlClient blocking = new();
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(
+                missionControlClient: blocking,
+                maxConcurrentConnections: 1);
+        server.Content.WriteText("about.txt", "About");
+
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
+
+        string response = await server.RequestAsync("/about.txt");
+        await blocking.WaitForStartedCountAsync(1, timeout.Token);
+        await blocking.WaitForFinishedCountAsync(1, timeout.Token);
+
+        Assert.Equal("About\r\n.\r\n", response);
+        Assert.Equal(1, blocking.CanceledCount);
+    }
+
+    [Fact]
+    public async Task Server_DoesNotLeakConnectionSlotAfterClientDisconnect()
+    {
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(maxConcurrentConnections: 1);
+        server.Content.WriteText("about.txt", "About");
+
+        using TcpClient client = new();
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
+        await client.ConnectAsync(IPAddress.Loopback, server.Port, timeout.Token);
+        client.Dispose();
+
+        string response = await server.RequestAsync("/about.txt");
+
+        Assert.Equal("About\r\n.\r\n", response);
+    }
+
+    [Fact]
     public async Task Server_StopsGracefullyWhileClientConnectionExists()
     {
         await using TestGopherServer server = await TestGopherServer.StartAsync();
@@ -291,7 +475,8 @@ public sealed class HappyGopherIntegrationTests
 
         public static async Task<TestGopherServer> StartAsync(
             IMissionControlClient? missionControlClient = null,
-            string? telemetryIgnoredRemoteAddress = null)
+            string? telemetryIgnoredRemoteAddress = null,
+            int maxConcurrentConnections = 64)
         {
             TestContentStore content = new();
             int port = GetAvailablePort();
@@ -301,6 +486,7 @@ public sealed class HappyGopherIntegrationTests
                 PublicHost = "127.0.0.1",
                 Port = port,
                 ContentRoot = content.Root,
+                MaxConcurrentConnections = maxConcurrentConnections,
                 RequestTimeoutSeconds = 5,
                 TelemetryIgnoredRemoteAddress =
                     telemetryIgnoredRemoteAddress
