@@ -252,15 +252,17 @@ Protocol support depends on how that particular `curl` build was compiled.
 
 ## Publishing
 
-Publish a self-contained Windows executable:
+Publish a framework-dependent Windows build:
 
 ```powershell
 dotnet publish .\HappyGopher\HappyGopher.csproj `
     --configuration Release `
     --runtime win-x64 `
-    --self-contained true `
+    --self-contained false `
     --output .\publish
 ```
+
+HappyGopher intentionally uses a framework-dependent .NET deployment rather than Native AOT to preserve support for future runtime-loaded plugins and content providers.
 
 The published `content` directory and `appsettings.json` should remain beside the executable. Content files under `HappyGopher/content` are copied recursively during publish.
 
