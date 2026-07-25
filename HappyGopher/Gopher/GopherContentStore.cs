@@ -23,7 +23,6 @@ public sealed class GopherContentStore
             : Path.Combine(AppContext.BaseDirectory, _options.ContentRoot));
     }
 
-    private static readonly Encoding WireEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
     private readonly HappyGopherOptions _options;
     private readonly ILogger<GopherContentStore> _logger;
     private static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -191,10 +190,13 @@ public sealed class GopherContentStore
         Stream output,
         CancellationToken cancellationToken)
     {
-        await using var writer = CreateWriter(output);
+        await using GopherResponseWriter writer = new(output);
         string directorySelector = PathToSelector(directory);
 
-        using var reader = new StreamReader(mapPath, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        using var reader = new StreamReader(
+            mapPath,
+            Encoding.UTF8,
+            detectEncodingFromByteOrderMarks: true);
 
         while (await reader.ReadLineAsync(cancellationToken) is { } rawLine)
         {
@@ -205,14 +207,14 @@ public sealed class GopherContentStore
 
             if (rawLine.Length == 0)
             {
-                await WriteInfoAsync(writer, string.Empty, cancellationToken);
+                await writer.WriteInfoAsync(string.Empty, cancellationToken);
                 continue;
             }
 
             char type = rawLine[0];
             if (!IsKnownMenuType(type))
             {
-                await WriteInfoAsync(writer, rawLine, cancellationToken);
+                await writer.WriteInfoAsync(rawLine, cancellationToken);
                 continue;
             }
 
@@ -221,29 +223,33 @@ public sealed class GopherContentStore
 
             if (type == 'i')
             {
-                await WriteInfoAsync(writer, display, cancellationToken);
+                await writer.WriteInfoAsync(display, cancellationToken);
                 continue;
             }
 
             string selector = fields.ElementAtOrDefault(1) ?? string.Empty;
             string? explicitHost = fields.ElementAtOrDefault(2);
             string? explicitPort = fields.ElementAtOrDefault(3);
-
             bool isLocalItem = string.IsNullOrWhiteSpace(explicitHost);
-            string host = isLocalItem ? _options.PublicHost : explicitHost!;
+
+            string host = isLocalItem
+                ? _options.PublicHost
+                : explicitHost!;
+
             int port = int.TryParse(explicitPort, out int parsedPort) &&
-            parsedPort is > 0 and <= 65535 ? parsedPort : _options.Port;
+                parsedPort is > 0 and <= 65535
+                    ? parsedPort
+                    : _options.Port;
 
             if (isLocalItem &&
                 !selector.StartsWith('/') &&
-                !selector.StartsWith("URL:", StringComparison.OrdinalIgnoreCase)
-                )
+                !selector.StartsWith(
+                    "URL:", StringComparison.OrdinalIgnoreCase))
             {
                 selector = CombineSelectors(directorySelector, selector);
             }
 
-            await WriteMenuItemAsync(
-                writer,
+            await writer.WriteMenuItemAsync(
                 type,
                 display,
                 selector,
@@ -251,7 +257,8 @@ public sealed class GopherContentStore
                 port,
                 cancellationToken);
         }
-        await WriteTerminatorAsync(writer, cancellationToken);
+
+        await writer.CompleteAsync(cancellationToken);
     }
 
     private static string CombineSelectors(string directorySelector, string child)
@@ -265,15 +272,6 @@ public sealed class GopherContentStore
 
     private static bool IsKnownMenuType(char value) =>
         "0123456789+TgIhis".Contains(value);
-
-    private static async Task WriteInfoAsync(
-        StreamWriter writer,
-        string display,
-        CancellationToken cancellationToken
-    )
-    {
-        await WriteMenuItemAsync(writer, 'i', display, "fake", "(NULL)", 0, cancellationToken);
-    }
 
     private string PathToSelector(string path)
     {
@@ -297,40 +295,6 @@ public sealed class GopherContentStore
 
         await writer.CompleteAsync(cancellationToken);
     }
-
-    private static async Task WriteTerminatorAsync(
-        StreamWriter writer,
-        CancellationToken cancellationToken
-    )
-    {
-        await writer.WriteLineAsync(".".AsMemory(), cancellationToken);
-        await writer.FlushAsync(cancellationToken);
-    }
-
-    private static async Task WriteMenuItemAsync(
-        StreamWriter writer,
-        char type,
-        string display,
-        string selector,
-        string host,
-        int port,
-        CancellationToken cancellationToken)
-    {
-        string line = string.Concat(
-            type,
-            GopherMenuFields.Sanitize(display), "\t",
-            GopherMenuFields.Sanitize(selector), "\t",
-            GopherMenuFields.Sanitize(host), "\t",
-            port.ToString(System.Globalization.CultureInfo.InvariantCulture));
-
-        await writer.WriteLineAsync(line.AsMemory(), cancellationToken);
-    }
-
-    private static StreamWriter CreateWriter(Stream output) =>
-        new(output, WireEncoding, bufferSize: 4096, leaveOpen: true)
-        {
-            NewLine = "\r\n"
-        };
 
     private string? ResolveSelector(string selector)
     {
