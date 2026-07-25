@@ -1,17 +1,18 @@
 /*
- * Happy Gopher Server
+ * Happy Gopher Service
  * Copyright (c) 2026 Kyle Givler
  * Licensed under the MIT License.
  */
 
 using HappyGopher;
 using JoyfulReaperLib.MissionControl;
+using JoyfulReaperLib.TcpServer;
 
 var builder = Host.CreateApplicationBuilder(args);
 
 builder.Services.AddWindowsService(options =>
 {
-    options.ServiceName = "Happy Gopher Server";
+    options.ServiceName = "Happy Gopher Service";
 });
 
 builder.Services
@@ -29,8 +30,9 @@ builder.Services.AddMissionControlClient(
     builder.Configuration.GetSection(
         MissionControlClientOptions.SectionName));
 
-builder.Services.AddHostedService<HappyGopherWorker>();
 builder.Services.AddSingleton<GopherContentStore>();
+builder.Services.AddTcpServer<GopherConnectionHandler, HappyGopherOptions>();
+builder.Services.AddHostedService<GopherLifecycleService>();
 
 var host = builder.Build();
 host.Run();
