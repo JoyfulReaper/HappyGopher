@@ -91,21 +91,20 @@ public sealed class GopherContentStore
     private static async Task WriteTextFileAsync(
         string path,
         Stream output,
-        CancellationToken cancellationToken
-    )
+        CancellationToken cancellationToken)
     {
-        using var reader = new StreamReader(path, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        using var reader = new StreamReader(
+            path,
+            Encoding.UTF8,
+            detectEncodingFromByteOrderMarks: true);
 
-        await using var writer = CreateWriter(output);
+        await using GopherResponseWriter writer = new(output);
         while (await reader.ReadLineAsync(cancellationToken) is { } line)
         {
-            if (line.StartsWith('.'))
-                line = "." + line;
-
-            await writer.WriteLineAsync(line.AsMemory(), cancellationToken);
+            await writer.WriteTextLineAsync(line, cancellationToken);
         }
 
-        await WriteTerminatorAsync(writer, cancellationToken);
+        await writer.CompleteAsync(cancellationToken);
     }
 
     private static bool IsTextFile(string path) =>

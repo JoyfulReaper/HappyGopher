@@ -4,12 +4,27 @@
  * Licensed under the MIT License.
  */
 
-using System.Text;
-
 namespace HappyGopher.Tests;
 
 public sealed class GopherContentStoreTests
 {
+    [Fact]
+    public async Task TextFile_UsesCrlfDotStuffingAndTerminator()
+    {
+        using TestContentStore content = new();
+
+        content.WriteText(
+            "about.txt",
+            "Hello\n.hidden");
+
+        string response =
+            await content.GetResponseAsync("/about.txt");
+
+        Assert.Equal(
+            "Hello\r\n..hidden\r\n.\r\n",
+            response);
+    }
+
     [Fact]
     public async Task WriteResponseAsync_EmptySelectorResolvesToContentRoot()
     {
