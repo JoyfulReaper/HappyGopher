@@ -30,9 +30,6 @@ public sealed class GopherConnectionHandler(
             context.ConnectionId,
             context.Stream,
             context.RemoteEndPoint,
-            gopherContentStore,
-            options.Value,
-            logger,
             cancellationToken);
 
         if (result is null)
@@ -51,13 +48,10 @@ public sealed class GopherConnectionHandler(
                 afterCloseToken));
     }
 
-    internal static async Task<GopherSessionResult?> ProcessAsync(
+    private async Task<GopherSessionResult?> ProcessAsync(
         long connectionId,
         Stream stream,
         EndPoint? remote,
-        GopherContentStore gopherContentStore,
-        HappyGopherOptions options,
-        ILogger logger,
         CancellationToken cancellationToken)
     {
         DateTimeOffset occurredAt = DateTimeOffset.UtcNow;
@@ -68,11 +62,11 @@ public sealed class GopherConnectionHandler(
         GopherResponseKind? responseKind = null;
         bool responseCompleted = false;
 
-        bool isIgnoredTelemetrySource = IsIgnoredTelemetrySource(remote, options.TelemetryIgnoredRemoteAddress);
+        bool isIgnoredTelemetrySource = IsIgnoredTelemetrySource(remote, options.Value.TelemetryIgnoredRemoteAddress);
 
         try
         {
-            string? request = await GopherSelectorReader.ReadAsync(stream, options.MaxSelectorBytes, options.RequestTimeoutSeconds, cancellationToken);
+            string? request = await GopherSelectorReader.ReadAsync(stream, options.Value.MaxSelectorBytes, options.Value.RequestTimeoutSeconds, cancellationToken);
             if (request is null)
             {
                 return null;
