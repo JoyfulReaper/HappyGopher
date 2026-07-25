@@ -1,5 +1,5 @@
 /*
- * Happy Gopher Server
+ * Happy Gopher Service
  * Copyright (c) 2026 Kyle Givler
  * Licensed under the MIT License.
  */
@@ -25,19 +25,15 @@ internal static class GopherSelectorReader
         int capacity = checked(maxSelectorBytes + 2);
         byte[] buffer = ArrayPool<byte>.Shared.Rent(capacity);
 
-        using var timeout =
-            CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(requestTimeoutSeconds));
 
         try
         {
             int count = 0;
-
             while (true)
             {
                 int remainingCapacity = capacity - count;
-
                 if (remainingCapacity == 0)
                 {
                     throw CreateTooLongException(maxSelectorBytes);
@@ -62,17 +58,13 @@ internal static class GopherSelectorReader
                     return DecodeSelector(buffer, count);
                 }
 
-                ReadOnlySpan<byte> received =
-                    buffer.AsSpan(count, bytesRead);
-
+                ReadOnlySpan<byte> received = buffer.AsSpan(count, bytesRead);
                 int newlineOffset = received.IndexOf((byte)'\n');
 
                 if (newlineOffset >= 0)
                 {
                     int lineLength = count + newlineOffset;
-
-                    if (lineLength > 0 &&
-                        buffer[lineLength - 1] == (byte)'\r')
+                    if (lineLength > 0 && buffer[lineLength - 1] == (byte)'\r')
                     {
                         lineLength--;
                     }
@@ -86,7 +78,6 @@ internal static class GopherSelectorReader
                 }
 
                 count += bytesRead;
-
                 if (count > maxSelectorBytes)
                 {
                     bool awaitingLfAfterCr =

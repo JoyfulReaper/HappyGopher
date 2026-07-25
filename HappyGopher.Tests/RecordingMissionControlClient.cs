@@ -56,4 +56,24 @@ public sealed class RecordingMissionControlClient : IMissionControlClient
             await _eventSignal.WaitAsync(cancellationToken);
         }
     }
+
+    public async Task WaitForPublishedEventCountAsync(
+        string eventType,
+        int expectedCount,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(eventType);
+
+        if (expectedCount < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(expectedCount));
+        }
+
+        while (_events.Count(
+            publishedEvent =>
+                publishedEvent.EventType == eventType) < expectedCount)
+        {
+            await _eventSignal.WaitAsync(cancellationToken);
+        }
+    }
 }

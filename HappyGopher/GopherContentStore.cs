@@ -1,5 +1,5 @@
 /*
- * Happy Gopher Server
+ * Happy Gopher Service
  * Copyright (c) 2026 Kyle Givler
  * Licensed under the MIT License.
  */
@@ -18,18 +18,14 @@ public sealed class GopherContentStore
         _options = options.Value;
         _logger = logger;
 
-        ContentRoot = Path.GetFullPath(
-            Path.IsPathRooted(_options.ContentRoot)
-                ? _options.ContentRoot
-                : Path.Combine(AppContext.BaseDirectory, _options.ContentRoot));
+        ContentRoot = Path.GetFullPath(Path.IsPathRooted(_options.ContentRoot)
+            ? _options.ContentRoot
+            : Path.Combine(AppContext.BaseDirectory, _options.ContentRoot));
     }
 
-    private static readonly Encoding WireEncoding = new UTF8Encoding(
-        encoderShouldEmitUTF8Identifier: false);
-
+    private static readonly Encoding WireEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
     private readonly HappyGopherOptions _options;
     private readonly ILogger<GopherContentStore> _logger;
-
     private static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".txt", ".text", ".md", ".markdown", ".log", ".csv",
@@ -98,11 +94,7 @@ public sealed class GopherContentStore
         CancellationToken cancellationToken
     )
     {
-        using var reader = new StreamReader(
-            path,
-            Encoding.UTF8,
-            detectEncodingFromByteOrderMarks: true
-        );
+        using var reader = new StreamReader(path, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
 
         await using var writer = CreateWriter(output);
         while (await reader.ReadLineAsync(cancellationToken) is { } line)
@@ -192,15 +184,10 @@ public sealed class GopherContentStore
     }
 
     private static int ComparePathsByName(string left, string right) =>
-        StringComparer.OrdinalIgnoreCase.Compare(
-            Path.GetFileName(left),
-            Path.GetFileName(right));
+        StringComparer.OrdinalIgnoreCase.Compare(Path.GetFileName(left), Path.GetFileName(right));
 
     private static bool IsInternalFile(string path) =>
-        string.Equals(
-            Path.GetFileName(path),
-            "gophermap",
-            StringComparison.OrdinalIgnoreCase);
+        string.Equals(Path.GetFileName(path), "gophermap", StringComparison.OrdinalIgnoreCase);
 
     private async Task WriteGopherMapAsync(
         string directory,
@@ -248,11 +235,8 @@ public sealed class GopherContentStore
 
             bool isLocalItem = string.IsNullOrWhiteSpace(explicitHost);
             string host = isLocalItem ? _options.PublicHost : explicitHost!;
-            int port =
-                int.TryParse(explicitPort, out int parsedPort) &&
-                parsedPort is > 0 and <= 65535
-                    ? parsedPort
-                    : _options.Port;
+            int port = int.TryParse(explicitPort, out int parsedPort) &&
+            parsedPort is > 0 and <= 65535 ? parsedPort : _options.Port;
 
             if (isLocalItem &&
                 !selector.StartsWith('/') &&
@@ -292,14 +276,7 @@ public sealed class GopherContentStore
         CancellationToken cancellationToken
     )
     {
-        await WriteMenuItemAsync(
-            writer,
-            'i',
-            display,
-            "fake",
-            "(NULL)",
-            0,
-            cancellationToken);
+        await WriteMenuItemAsync(writer, 'i', display, "fake", "(NULL)", 0, cancellationToken);
     }
 
     private string PathToSelector(string path)
@@ -317,15 +294,7 @@ public sealed class GopherContentStore
     {
         await using var writer = CreateWriter(output);
 
-        await WriteMenuItemAsync(
-            writer,
-            '3',
-            message,
-            "error",
-            _options.PublicHost,
-            _options.Port,
-            cancellationToken);
-
+        await WriteMenuItemAsync(writer, '3', message, "error", _options.PublicHost, _options.Port, cancellationToken);
         await WriteTerminatorAsync(writer, cancellationToken);
     }
 
@@ -373,12 +342,9 @@ public sealed class GopherContentStore
             return null;
 
         string candidate;
-
         try
         {
-            candidate = Path.GetFullPath(Path.Combine(
-                ContentRoot,
-                relative.Replace('/', Path.DirectorySeparatorChar)));
+            candidate = Path.GetFullPath(Path.Combine(ContentRoot, relative.Replace('/', Path.DirectorySeparatorChar)));
         }
         catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
         {
