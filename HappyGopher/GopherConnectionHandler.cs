@@ -194,6 +194,7 @@ public sealed class GopherConnectionHandler(
                     result.Remote,
                     result.DurationMilliseconds,
                     result.Succeeded),
+                payloadTypeInfo: HappyGopherJsonContext.Default.SelectorServedEvent,
                 occurredAt: result.OccurredAt,
                 correlationId: result.CorrelationId,
                 cancellationToken: timeout.Token);

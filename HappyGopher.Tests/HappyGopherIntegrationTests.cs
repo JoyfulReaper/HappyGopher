@@ -15,6 +15,7 @@ using Microsoft.Extensions.Options;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.Json.Serialization.Metadata;
 
 namespace HappyGopher.Tests;
 
@@ -31,6 +32,7 @@ public sealed class HappyGopherIntegrationTests
         public Task<bool> TryPublishAsync<TPayload>(
             string eventType,
             TPayload payload,
+            JsonTypeInfo<TPayload> payloadTypeInfo,
             DateTimeOffset occurredAt,
             string? correlationId = null,
             CancellationToken cancellationToken = default) =>
@@ -48,6 +50,7 @@ public sealed class HappyGopherIntegrationTests
         public Task<bool> TryPublishAsync<TPayload>(
             string eventType,
             TPayload payload,
+            JsonTypeInfo<TPayload> payloadTypeInfo,
             DateTimeOffset occurredAt,
             string? correlationId = null,
             CancellationToken cancellationToken = default)
@@ -66,6 +69,7 @@ public sealed class HappyGopherIntegrationTests
         public Task<bool> TryPublishAsync<TPayload>(
             string eventType,
             TPayload payload,
+            JsonTypeInfo<TPayload> payloadTypeInfo,
             DateTimeOffset occurredAt,
             string? correlationId = null,
             CancellationToken cancellationToken = default)
@@ -89,6 +93,7 @@ public sealed class HappyGopherIntegrationTests
         public async Task<bool> TryPublishAsync<TPayload>(
             string eventType,
             TPayload payload,
+            JsonTypeInfo<TPayload> payloadTypeInfo,
             DateTimeOffset occurredAt,
             string? correlationId = null,
             CancellationToken cancellationToken = default)
@@ -141,6 +146,7 @@ public sealed class HappyGopherIntegrationTests
         public async Task<bool> TryPublishAsync<TPayload>(
             string eventType,
             TPayload payload,
+            JsonTypeInfo<TPayload> payloadTypeInfo,
             DateTimeOffset occurredAt,
             string? correlationId = null,
             CancellationToken cancellationToken = default)

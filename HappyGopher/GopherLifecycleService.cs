@@ -45,6 +45,7 @@ public sealed class GopherLifecycleService(
             bool published = await missionControlClient.TryPublishAsync(
                 eventType: GopherServiceStartedEvent.EventName,
                 payload: new GopherServiceStartedEvent($"{listenAddress}:{options.Value.Port}"),
+                payloadTypeInfo: HappyGopherJsonContext.Default.GopherServiceStartedEvent,
                 occurredAt: DateTimeOffset.UtcNow,
                 correlationId: null,
                 cancellationToken: timeout.Token);
