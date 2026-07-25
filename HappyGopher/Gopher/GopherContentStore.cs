@@ -285,16 +285,20 @@ public sealed class GopherContentStore
 
         return relative == "." ? "/" : "/" + relative;
     }
-
     private async Task WriteErrorAsync(
         Stream output,
         string message,
         CancellationToken cancellationToken)
     {
-        await using var writer = CreateWriter(output);
+        await using GopherResponseWriter writer = new(output);
 
-        await WriteMenuItemAsync(writer, '3', message, "error", _options.PublicHost, _options.Port, cancellationToken);
-        await WriteTerminatorAsync(writer, cancellationToken);
+        await writer.WriteErrorAsync(
+            message,
+            _options.PublicHost,
+            _options.Port,
+            cancellationToken);
+
+        await writer.CompleteAsync(cancellationToken);
     }
 
     private static async Task WriteTerminatorAsync(
