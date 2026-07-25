@@ -4,6 +4,7 @@
  * Licensed under the MIT License.
  */
 
+using HappyGopher.Events;
 using JoyfulReaperLib.MissionControl;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
