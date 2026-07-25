@@ -4,12 +4,10 @@
  * Licensed under the MIT License.
  */
 
-using HappyGopher.Events;
 using JoyfulReaperLib.JRNet;
 using JoyfulReaperLib.MissionControl;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 
@@ -21,47 +19,57 @@ public class HappyGopherWorker(
     GopherContentStore gopherContentStore,
     IMissionControlClient missionControlClient) : BackgroundService
 {
-    private static readonly TimeSpan TelemetryPublishTimeout =
-        TimeSpan.FromSeconds(2);
-
     private TcpListener? _listener;
-    private readonly ConcurrentDictionary<long, Task> _activeConnections = new();
+
+    private readonly ConcurrentDictionary<long, Task> _activeConnections =
+        new();
+
     private volatile bool _stopRequested;
+
     private readonly SemaphoreSlim _connectionLimit = new(
         options.Value.MaxConcurrentConnections,
         options.Value.MaxConcurrentConnections);
+
     private long _nextConnectionId;
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task ExecuteAsync(
+        CancellationToken stoppingToken)
     {
-        IPAddress ipAddress = IPAddressUtils.ParseListenAddress(options.Value.ListenAddress);
+        IPAddress ipAddress =
+            IPAddressUtils.ParseListenAddress(options.Value.ListenAddress);
+
         _listener = new TcpListener(ipAddress, options.Value.Port);
         _listener.Start();
 
         logger.LogInformation(
-            "HappyGopher Server Listening on {address}:{port}; content root is {ContentRoot}",
+            "HappyGopher Server Listening on {Address}:{Port}; content root is {ContentRoot}",
             ipAddress,
             options.Value.Port,
-            gopherContentStore.ContentRoot
-        );
+            gopherContentStore.ContentRoot);
 
         try
         {
             while (!stoppingToken.IsCancellationRequested)
             {
                 TcpClient client;
+
                 try
                 {
-                    client = await _listener.AcceptTcpClientAsync(stoppingToken);
+                    client = await _listener.AcceptTcpClientAsync(
+                        stoppingToken);
                 }
-                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                catch (OperationCanceledException)
+                    when (stoppingToken.IsCancellationRequested)
                 {
                     break;
                 }
-                catch (SocketException) when (stoppingToken.IsCancellationRequested || _stopRequested)
+                catch (SocketException)
+                    when (stoppingToken.IsCancellationRequested ||
+                          _stopRequested)
                 {
                     break;
                 }
+
                 try
                 {
                     await _connectionLimit.WaitAsync(stoppingToken);
@@ -72,25 +80,34 @@ public class HappyGopherWorker(
                     break;
                 }
 
-                long connectionId = Interlocked.Increment(ref _nextConnectionId);
-                Task task = HandleClientAsync(connectionId, client, stoppingToken);
+                long connectionId =
+                    Interlocked.Increment(ref _nextConnectionId);
+
+                Task task = HandleClientAsync(
+                    connectionId,
+                    client,
+                    stoppingToken);
+
                 _activeConnections[connectionId] = task;
 
                 _ = task.ContinueWith(
-                    completedTask =>
+                    _ =>
                     {
-                        _activeConnections.TryRemove(connectionId, out _);
+                        _activeConnections.TryRemove(
+                            connectionId,
+                            out _);
                     },
                     CancellationToken.None,
                     TaskContinuationOptions.ExecuteSynchronously,
-                    TaskScheduler.Default
-                );
+                    TaskScheduler.Default);
             }
         }
         finally
         {
             _listener.Stop();
+
             Task[] remaining = _activeConnections.Values.ToArray();
+
             if (remaining.Length > 0)
             {
                 try
@@ -99,7 +116,7 @@ public class HappyGopherWorker(
                 }
                 catch
                 {
-                    // Normal Shutdown
+                    // Normal shutdown.
                 }
             }
 
@@ -107,9 +124,11 @@ public class HappyGopherWorker(
         }
     }
 
-    public override Task StopAsync(CancellationToken cancellationToken)
+    public override Task StopAsync(
+        CancellationToken cancellationToken)
     {
         logger.LogInformation("HappyGopher Server Stopping...");
+
         _stopRequested = true;
         _listener?.Stop();
 
@@ -121,251 +140,63 @@ public class HappyGopherWorker(
         TcpClient client,
         CancellationToken stoppingToken)
     {
-        var occurredAt = DateTimeOffset.UtcNow;
-        var stopwatch = Stopwatch.StartNew();
-        var correlationId = Guid.NewGuid().ToString("N");
-
-        string? selector = null;
-        GopherResponseKind? responseKind = null;
-        bool responseCompleted = false;
-        EndPoint? remote = null;
-        bool isIgnoredTelemetrySource = false;
-        SelectorServedTelemetryResult? telemetry = null;
+        GopherSessionResult? result = null;
 
         try
         {
             using (client)
             {
                 client.NoDelay = true;
-                remote = client.Client.RemoteEndPoint;
 
-                isIgnoredTelemetrySource =
-                    IsIgnoredTelemetrySource(remote);
+                EndPoint? remote = client.Client.RemoteEndPoint;
 
-                try
-                {
-                    await using NetworkStream stream = client.GetStream();
-                    string? request = await ReadSelectorLineAsync(stream, stoppingToken);
+                await using NetworkStream stream = client.GetStream();
 
-                    if (request is null)
-                    {
-                        return;
-                    }
-
-                    int tabIndex = request.IndexOf("\t");
-                    selector = tabIndex >= 0
-                        ? request[..tabIndex]
-                        : request;
-
-                    logger.LogDebug(
-                        "Connection {ConnectionId} from {Remote} requested selector {Selector}",
-                        connectionId,
-                        remote,
-                        selector);
-
-                    responseKind =
-                        await gopherContentStore.WriteResponseAsync(
-                            selector,
-                            stream,
-                            stoppingToken);
-
-                    await stream.FlushAsync(stoppingToken);
-                    responseCompleted = true;
-                }
-                catch (OperationCanceledException)
-                {
-                    logger.LogWarning(
-                        "Connection {ConnectionId} from {Remote} timed out.",
-                        connectionId,
-                        remote);
-                }
-                catch (InvalidDataException exception)
-                {
-                    logger.LogWarning(
-                        exception,
-                        "Rejected malformed request on connection {ConnectionId} from {Remote}.",
-                        connectionId,
-                        remote);
-                }
-                catch (IOException exception)
-                {
-                    logger.LogDebug(
-                        exception,
-                        "Connection {ConnectionId} from {Remote} ended early.",
-                        connectionId,
-                        remote);
-                }
-                catch (SocketException exception)
-                {
-                    logger.LogDebug(
-                        exception,
-                        "Socket error on connection {ConnectionId} from {Remote}.",
-                        connectionId,
-                        remote);
-                }
-                catch (Exception exception)
-                {
-                    logger.LogError(
-                        exception,
-                        "Unhandled error on connection {ConnectionId} from {Remote}.",
-                        connectionId,
-                        remote);
-                }
-
-                stopwatch.Stop();
-                if (selector is null || responseKind is null)
-                {
-                    return;
-                }
-
-                var succeeded =
-                    responseCompleted &&
-                    responseKind is not GopherResponseKind.InvalidSelector &&
-                    responseKind is not GopherResponseKind.NotFound;
-
-                if (isIgnoredTelemetrySource)
-                {
-                    logger.LogDebug(
-                        "Skipping telemetry for monitoring request from {Remote}.",
-                        remote);
-
-                    return;
-                }
-
-                telemetry = new SelectorServedTelemetryResult(
-                    selector,
-                    responseKind.Value,
-                    remote?.ToString() ?? "unknown",
-                    stopwatch.ElapsedMilliseconds,
-                    succeeded,
-                    occurredAt,
-                    correlationId);
+                result = await GopherConnectionHandler.ProcessAsync(
+                    connectionId,
+                    stream,
+                    remote,
+                    gopherContentStore,
+                    options.Value,
+                    logger,
+                    stoppingToken);
             }
+        }
+        catch (IOException exception)
+        {
+            logger.LogDebug(
+                exception,
+                "Connection {ConnectionId} ended while opening or closing its stream.",
+                connectionId);
+        }
+        catch (SocketException exception)
+        {
+            logger.LogDebug(
+                exception,
+                "Socket error while opening or closing connection {ConnectionId}.",
+                connectionId);
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(
+                exception,
+                "Unhandled connection lifecycle error on connection {ConnectionId}.",
+                connectionId);
         }
         finally
         {
             _connectionLimit.Release();
         }
 
-        if (telemetry is not null)
+        if (result is not null)
         {
-            await PublishSelectorServedTelemetryAsync(
-                telemetry,
-                stoppingToken);
+            await GopherConnectionHandler
+                .PublishSelectorServedTelemetryAsync(
+                    connectionId,
+                    result,
+                    missionControlClient,
+                    logger,
+                    stoppingToken);
         }
     }
-
-    private bool IsIgnoredTelemetrySource(
-    EndPoint? remote)
-    {
-        string? remoteAddress =
-            (remote as IPEndPoint)?
-                .Address
-                .MapToIPv4()
-                .ToString();
-
-        return
-            !string.IsNullOrWhiteSpace(
-                options.Value.TelemetryIgnoredRemoteAddress) &&
-            string.Equals(
-                remoteAddress,
-                options.Value.TelemetryIgnoredRemoteAddress,
-                StringComparison.OrdinalIgnoreCase);
-    }
-
-    private async Task PublishSelectorServedTelemetryAsync(
-        SelectorServedTelemetryResult telemetry,
-        CancellationToken stoppingToken)
-    {
-        using CancellationTokenSource timeoutTokenSource =
-            new(TelemetryPublishTimeout);
-        using CancellationTokenSource publishTokenSource =
-            CancellationTokenSource.CreateLinkedTokenSource(
-                stoppingToken,
-                timeoutTokenSource.Token);
-
-        try
-        {
-            bool published = await missionControlClient.TryPublishAsync(
-                eventType: "happygopher.selector.served",
-                payload: new SelectorServedEvent(
-                    telemetry.Selector,
-                    ToResponseType(telemetry.ResponseKind),
-                    telemetry.Remote,
-                    telemetry.DurationMilliseconds,
-                    telemetry.Succeeded),
-                telemetry.OccurredAt,
-                telemetry.CorrelationId,
-                publishTokenSource.Token);
-
-            if (!published)
-            {
-                logger.LogWarning(
-                    "Mission Control did not accept telemetry for selector {Selector}.",
-                    telemetry.Selector);
-            }
-        }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-        {
-            logger.LogDebug(
-                "Telemetry publishing stopped for selector {Selector}.",
-                telemetry.Selector);
-        }
-        catch (OperationCanceledException)
-        {
-            logger.LogWarning(
-                "Timed out publishing telemetry for selector {Selector}.",
-                telemetry.Selector);
-        }
-        catch (Exception exception)
-        {
-            logger.LogWarning(
-                exception,
-                "Failed to publish telemetry for selector {Selector}.",
-                telemetry.Selector);
-        }
-    }
-
-    private static string ToResponseType(
-        GopherResponseKind responseKind)
-    {
-        return responseKind switch
-        {
-            GopherResponseKind.Menu =>
-                "menu",
-
-            GopherResponseKind.Text =>
-                "text",
-
-            GopherResponseKind.Binary =>
-                "binary",
-
-            GopherResponseKind.NotFound =>
-                "not-found",
-
-            GopherResponseKind.InvalidSelector =>
-                "invalid-selector",
-
-            _ =>
-                "unknown"
-        };
-    }
-
-    private Task<string?> ReadSelectorLineAsync(
-        NetworkStream stream,
-        CancellationToken stoppingToken) =>
-        GopherSelectorReader.ReadAsync(
-            stream,
-            options.Value.MaxSelectorBytes,
-            options.Value.RequestTimeoutSeconds,
-            stoppingToken);
-
-    private sealed record SelectorServedTelemetryResult(
-        string Selector,
-        GopherResponseKind ResponseKind,
-        string Remote,
-        long DurationMilliseconds,
-        bool Succeeded,
-        DateTimeOffset OccurredAt,
-        string CorrelationId);
 }
