@@ -13,7 +13,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 
-namespace HappyGopher;
+namespace HappyGopher.Gopher;
 
 public sealed class GopherConnectionHandler(
     ILogger<GopherConnectionHandler> logger,

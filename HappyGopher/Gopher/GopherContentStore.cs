@@ -7,7 +7,7 @@
 using Microsoft.Extensions.Options;
 using System.Text;
 
-namespace HappyGopher;
+namespace HappyGopher.Gopher;
 
 public sealed class GopherContentStore
 {

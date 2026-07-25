@@ -9,7 +9,7 @@ using JoyfulReaperLib.JRNet;
 using JoyfulReaperLib.MissionControl;
 using Microsoft.Extensions.Options;
 
-namespace HappyGopher;
+namespace HappyGopher.Gopher;
 
 public sealed class GopherLifecycleService(
     ILogger<GopherLifecycleService> logger,

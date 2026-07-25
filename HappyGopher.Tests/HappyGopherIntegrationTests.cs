@@ -5,6 +5,7 @@
  */
 
 using HappyGopher.Events;
+using HappyGopher.Gopher;
 using HappyGopher.Pages;
 using JoyfulReaperLib.MissionControl;
 using JoyfulReaperLib.TcpServer;
@@ -240,6 +241,52 @@ public sealed class HappyGopherIntegrationTests
         Assert.Equal(
             $"127.0.0.1:{server.Port}",
             payload.ListenAddress);
+    }
+
+    [Fact]
+    public async Task Server_FallsBackToStaticContentWhenNoDynamicPageMatches()
+    {
+        TestGopherPage page = new(
+            selector: "/dynamic/test",
+            response: "Dynamic page\r\n.\r\n");
+
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(
+                pages: new IGopherPage[] { page });
+
+        server.Content.WriteText(
+            "about.txt",
+            "Static page");
+
+        string response =
+            await server.RequestAsync("/about.txt");
+
+        Assert.Equal(
+            "Static page\r\n.\r\n",
+            response);
+    }
+
+    [Fact]
+    public async Task Server_DynamicPageTakesPrecedenceOverStaticContent()
+    {
+        TestGopherPage page = new(
+            selector: "/dynamic/test.txt",
+            response: "Dynamic page\r\n.\r\n");
+
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(
+                pages: new IGopherPage[] { page });
+
+        server.Content.WriteText(
+            "dynamic/test.txt",
+            "Static page");
+
+        string response =
+            await server.RequestAsync("/dynamic/test.txt");
+
+        Assert.Equal(
+            "Dynamic page\r\n.\r\n",
+            response);
     }
 
     [Fact]
@@ -712,8 +759,6 @@ public sealed class HappyGopherIntegrationTests
                         logging.ClearProviders())
                     .ConfigureServices(services =>
                     {
-                        services.AddSingleton<GopherContentStore>();
-
                         foreach (IGopherPage page in registeredPages)
                         {
                             services.AddSingleton<IGopherPage>(page);

@@ -4,6 +4,7 @@
  * Licensed under the MIT License.
  */
 
+using HappyGopher.Gopher;
 using System.Runtime.InteropServices;
 
 namespace HappyGopher.Tests;

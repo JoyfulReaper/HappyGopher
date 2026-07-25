@@ -4,7 +4,7 @@
  * Licensed under the MIT License.
  */
 
-using HappyGopher;
+using HappyGopher.Gopher;
 using HappyGopher.Pages;
 using JoyfulReaperLib.MissionControl;
 using JoyfulReaperLib.TcpServer;
