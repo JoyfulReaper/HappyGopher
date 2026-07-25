@@ -20,4 +20,6 @@ COPY --from=build /app/publish .
 
 EXPOSE 70
 
+USER $APP_UID
+
 ENTRYPOINT ["dotnet", "HappyGopher.dll"]
