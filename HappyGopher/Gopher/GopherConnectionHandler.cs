@@ -5,6 +5,7 @@
  */
 
 using HappyGopher.Events;
+using HappyGopher.Pages;
 using JoyfulReaperLib.MissionControl;
 using JoyfulReaperLib.TcpServer;
 using Microsoft.Extensions.Options;
@@ -12,11 +13,12 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 
-namespace HappyGopher;
+namespace HappyGopher.Gopher;
 
 public sealed class GopherConnectionHandler(
     ILogger<GopherConnectionHandler> logger,
     IOptions<HappyGopherOptions> options,
+    GopherPageResolver gopherPageResolver,
     GopherContentStore gopherContentStore,
     IMissionControlClient missionControlClient) : ITcpConnectionHandler
 {
@@ -88,7 +90,15 @@ public sealed class GopherConnectionHandler(
                 remote,
                 selector);
 
-            responseKind = await gopherContentStore.WriteResponseAsync(selector, stream, cancellationToken);
+            IGopherPage? page = gopherPageResolver.Resolve(selector);
+            responseKind = page is null
+                ? await gopherContentStore.WriteResponseAsync(
+                    selector,
+                    stream,
+                    cancellationToken)
+                : await page.WriteAsync(
+                    stream,
+                    cancellationToken);
             responseCompleted = true;
         }
         catch (OperationCanceledException)
@@ -184,6 +194,7 @@ public sealed class GopherConnectionHandler(
                     result.Remote,
                     result.DurationMilliseconds,
                     result.Succeeded),
+                payloadTypeInfo: HappyGopherJsonContext.Default.SelectorServedEvent,
                 occurredAt: result.OccurredAt,
                 correlationId: result.CorrelationId,
                 cancellationToken: timeout.Token);

@@ -4,7 +4,7 @@
  * Licensed under the MIT License.
  */
 
-namespace HappyGopher;
+namespace HappyGopher.Gopher;
 
 public enum GopherResponseKind
 {

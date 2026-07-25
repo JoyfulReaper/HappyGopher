@@ -6,7 +6,7 @@
 
 using JoyfulReaperLib.TcpServer;
 
-namespace HappyGopher;
+namespace HappyGopher.Gopher;
 
 public sealed class HappyGopherOptions : ITcpServerOptions
 {

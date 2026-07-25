@@ -4,11 +4,16 @@
 [![License](https://img.shields.io/github/license/JoyfulReaper/HappyGopher)](LICENSE)
 [![GitHub Repo](https://img.shields.io/badge/GitHub-JoyfulReaper%2FHappyGopher-181717?logo=github)](https://github.com/JoyfulReaper/HappyGopher)
 
-A small, static Gopher server for Windows, built with C# and .NET 10.
+A small Gopher server for Windows, built with C# and .NET 10. It serves
+static content and supports compiled dynamic Gopher pages.
 
-HappyGopher serves files and directory menus over the classic [Gopher protocol](https://en.wikipedia.org/wiki/Gopher_%28protocol%29). It can run directly from the console during development or as a Windows Service for long-running installations.
+HappyGopher serves files, directory menus, and dynamic pages over the classic
+[Gopher protocol](https://en.wikipedia.org/wiki/Gopher_%28protocol%29). It can
+run directly from the console during development or as a Windows Service for
+long-running installations.
 
-No web framework. No database. No JavaScript. Just a TCP listener, a folder full of content, and a protocol from a simpler time.
+No web framework. No database. No JavaScript. Just a TCP listener, content,
+optional compiled pages, and a protocol from a simpler time.
 
 ## Live Demo
 
@@ -30,7 +35,8 @@ Or, if your build of `curl` supports Gopher:
 curl.exe gopher://gopher.kgivler.com/
 ```
 
-The live site is intentionally small and plain text, and serves as a real-world example of HappyGopher hosting static Gopher content.
+The live site is intentionally small and plain text, and serves as a
+real-world example of HappyGopher hosting Gopher content.
 
 
 ## Features
@@ -38,6 +44,11 @@ The live site is intentionally small and plain text, and serves as a real-world 
 * Serves static text, images, and binary files over Gopher
 * Supports custom `gophermap` menu files
 * Automatically generates directory menus when no `gophermap` exists
+* Supports exact-selector dynamic pages through `IGopherPage`
+* Resolves dynamic pages before static content at the same selector
+* Provides `GopherResponseWriter` for reusable protocol-safe response
+  formatting
+* Includes a `/server-time` dynamic page that returns the current UTC time
 * Runs as a console application or Windows Service
 * Configurable listening address and port
 * Configurable public hostname used in generated menus
@@ -204,6 +215,63 @@ Comments may be added by beginning a line with `#`:
 iThis line is displayed
 ```
 
+## Dynamic Pages
+
+Compiled dynamic pages implement `IGopherPage`. The `Selector` property
+identifies the one exact selector handled by the page, and `WriteAsync` writes
+the response and returns its `GopherResponseKind`. That response kind is used
+by the normal selector telemetry.
+
+HappyGopher resolves dynamic pages before checking filesystem content. A
+dynamic page therefore overrides a static resource at the same selector.
+Selectors without a matching page fall back to `GopherContentStore` and the
+normal static-content behavior.
+
+`GopherResponseWriter` provides reusable formatting for text responses, menu
+items, informational lines, and errors. It handles CRLF line endings, menu
+field sanitization, dot-stuffing, and response termination.
+
+```csharp
+public sealed class ExamplePage : IGopherPage
+{
+    public string Selector => "/example";
+
+    public async Task<GopherResponseKind> WriteAsync(
+        Stream output,
+        CancellationToken cancellationToken)
+    {
+        await using GopherResponseWriter writer = new(output);
+
+        await writer.WriteTextLineAsync(
+            "Hello from a dynamic Gopher page.",
+            cancellationToken);
+
+        await writer.CompleteAsync(cancellationToken);
+
+        return GopherResponseKind.Text;
+    }
+}
+```
+
+The output stream is owned by the server and page implementations must not
+close it. `GopherResponseWriter` leaves the stream open.
+
+Pages currently require explicit dependency-injection registration in
+`Program.cs`:
+
+```csharp
+builder.Services.AddScoped<IGopherPage, ExamplePage>();
+```
+
+The included example uses selector `/server-time`, returns a text response
+containing the current UTC server time, and is implemented by `ServerTimePage`
+in `HappyGopher/Pages/ExampleServerTimePage.cs`. The sample root `gophermap`
+links to it.
+
+Runtime DLL scanning and plugin-folder loading are planned but are not
+implemented. HappyGopher does not currently discover page assemblies
+automatically.
+
 ## Testing the Server
 
 Run the automated test suite:
@@ -211,6 +279,10 @@ Run the automated test suite:
 ```powershell
 dotnet test
 ```
+
+Tests cover static serving, dynamic routing, dynamic-page precedence and
+static fallback, response formatting, telemetry, concurrency, request limits,
+and graceful shutdown.
 
 Use a Gopher client and connect to:
 
@@ -262,7 +334,10 @@ dotnet publish .\HappyGopher\HappyGopher.csproj `
     --output .\publish
 ```
 
-HappyGopher intentionally uses a framework-dependent .NET deployment rather than Native AOT to preserve support for future runtime-loaded plugins and content providers.
+HappyGopher intentionally uses a framework-dependent .NET deployment rather
+than Native AOT to preserve support for future runtime-loaded plugins and
+content providers. Runtime plugin discovery and loading are not implemented
+yet; pages currently must be compiled and registered explicitly.
 
 The published `content` directory and `appsettings.json` should remain beside the executable. Content files under `HappyGopher/content` are copied recursively during publish.
 
@@ -329,12 +404,15 @@ Gopher does not provide encryption. Traffic, selectors, and downloaded content a
 
 ## Current Limitations
 
-* Static files only
+* Compiled `IGopherPage` implementations are supported, but runtime plugin DLL
+  discovery and loading are not
+* Dynamic routing supports exact selectors only; prefix, wildcard, and
+  parameterized routes are not supported
+* No CGI or arbitrary scripting
+* No Gopher search handlers or search routes
 * No authentication or access control
 * No TLS support
 * Gopher traffic is plaintext
-* No dynamic scripts or CGI handlers
-* No Gopher search handlers
 * No administrative interface
 * No official packaged releases yet
 * Primarily developed and tested for Windows
@@ -344,24 +422,27 @@ Gopher does not provide encryption. Traffic, selectors, and downloaded content a
 ```text
 HappyGopher.slnx
 ├── HappyGopher/
+│   ├── Events/
+│   │   ├── GopherServiceStartedEvent.cs
+│   │   ├── SelectorServedEvent.cs
+│   │   └── HappyGopherJsonContext.cs
+│   ├── Gopher/
+│   │   ├── GopherConnectionHandler.cs
+│   │   ├── GopherContentStore.cs
+│   │   ├── GopherResponseWriter.cs
+│   │   └── GopherResponseKind.cs
+│   ├── Pages/
+│   │   ├── IGopherPage.cs
+│   │   ├── GopherPageResolver.cs
+│   │   └── ExampleServerTimePage.cs
 │   ├── Program.cs
-│   ├── GopherConnectionHandler.cs
-│   ├── GopherLifecycleService.cs
-│   ├── GopherSelectorReader.cs
-│   ├── GopherPathSecurity.cs
-│   ├── GopherMenuFields.cs
-│   ├── HappyGopherOptions.cs
-│   ├── GopherContentStore.cs
 │   ├── HappyGopher.csproj
 │   ├── appsettings.json
 │   └── content/
 ├── HappyGopher.Tests/
-│   ├── GopherSelectorReaderTests.cs
-│   ├── GopherContentStoreTests.cs
-│   ├── GopherPathSecurityTests.cs
-│   ├── GopherMenuFieldsTests.cs
-│   ├── HappyGopherIntegrationTests.cs
-│   └── HappyGopher.Tests.csproj
+│   ├── GopherPageResolverTests.cs
+│   ├── GopherResponseWriterTests.cs
+│   └── ServerTimePageTests.cs
 └── LICENSE
 ```
 

@@ -4,7 +4,7 @@
  * Licensed under the MIT License.
  */
 
-namespace HappyGopher;
+namespace HappyGopher.Gopher;
 
 internal static class GopherPathSecurity
 {

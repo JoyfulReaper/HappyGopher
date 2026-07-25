@@ -7,7 +7,7 @@
 using System.Buffers;
 using System.Text;
 
-namespace HappyGopher;
+namespace HappyGopher.Gopher;
 
 internal static class GopherSelectorReader
 {

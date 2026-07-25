@@ -4,6 +4,7 @@
  * Licensed under the MIT License.
  */
 
+using HappyGopher.Gopher;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
