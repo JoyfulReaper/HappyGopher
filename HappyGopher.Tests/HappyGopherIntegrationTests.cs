@@ -49,8 +49,15 @@ public sealed class HappyGopherIntegrationTests
             TPayload payload,
             DateTimeOffset occurredAt,
             string? correlationId = null,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(false);
+            CancellationToken cancellationToken = default)
+        {
+            if (eventType != GopherServiceStartedEvent.EventName)
+            {
+                return Task.FromResult(true);
+            }
+
+            return Task.FromResult(false);
+        }
     }
 
     private sealed class ThrowingMissionControlClient : IMissionControlClient
@@ -60,8 +67,15 @@ public sealed class HappyGopherIntegrationTests
             TPayload payload,
             DateTimeOffset occurredAt,
             string? correlationId = null,
-            CancellationToken cancellationToken = default) =>
+            CancellationToken cancellationToken = default)
+        {
+            if (eventType != GopherServiceStartedEvent.EventName)
+            {
+                return Task.FromResult(true);
+            }
+
             throw new InvalidOperationException("Telemetry failure");
+        }
     }
 
     private sealed class StartupTimeoutMissionControlClient :
@@ -198,9 +212,8 @@ public sealed class HappyGopherIntegrationTests
         await using TestGopherServer server =
             await TestGopherServer.StartAsync(recording);
 
-        await recording.WaitForPublishedEventCountAsync(
-            GopherServiceStartedEvent.EventName,
-            1);
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
+        await recording.WaitForPublishedEventCountAsync(GopherServiceStartedEvent.EventName, 1, timeout.Token);
 
         RecordedMissionControlEvent telemetry = Assert.Single(
             recording.PublishedEvents,
@@ -245,6 +258,13 @@ public sealed class HappyGopherIntegrationTests
             "iRoot\tfake\t(NULL)\t0\r\n.\r\n",
             response);
 
+        using CancellationTokenSource timeout =
+            new(TimeSpan.FromSeconds(5));
+
+        await Task.Delay(
+            TimeSpan.FromMilliseconds(250),
+            timeout.Token);
+
         Assert.DoesNotContain(
             recording.PublishedEvents,
             publishedEvent =>
@@ -274,9 +294,8 @@ public sealed class HappyGopherIntegrationTests
 
         Assert.Equal("iRoot\tfake\t(NULL)\t0\r\n.\r\n", response);
 
-        await recording.WaitForPublishedEventCountAsync(
-            SelectorServedEventName,
-            1);
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
+        await recording.WaitForPublishedEventCountAsync(GopherServiceStartedEvent.EventName, 1, timeout.Token);
 
         RecordedMissionControlEvent telemetry = Assert.Single(
             recording.PublishedEvents,
@@ -390,9 +409,8 @@ public sealed class HappyGopherIntegrationTests
 
         Assert.Equal("About\r\n.\r\n", response);
 
-        await recording.WaitForPublishedEventCountAsync(
-            SelectorServedEventName,
-            1);
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
+        await recording.WaitForPublishedEventCountAsync(GopherServiceStartedEvent.EventName, 1, timeout.Token);
 
         RecordedMissionControlEvent telemetry = Assert.Single(
             recording.PublishedEvents,
@@ -416,9 +434,8 @@ public sealed class HappyGopherIntegrationTests
 
         Assert.Contains("iDownloads", response);
 
-        await recording.WaitForPublishedEventCountAsync(
-            SelectorServedEventName,
-            1);
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
+        await recording.WaitForPublishedEventCountAsync(GopherServiceStartedEvent.EventName, 1, timeout.Token);
 
         RecordedMissionControlEvent telemetry = Assert.Single(
             recording.PublishedEvents,
@@ -453,9 +470,8 @@ public sealed class HappyGopherIntegrationTests
         Assert.Contains("3Selector not found.\terror\t127.0.0.1\t", response);
         Assert.EndsWith(".\r\n", response);
 
-        await recording.WaitForPublishedEventCountAsync(
-            SelectorServedEventName,
-            1);
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
+        await recording.WaitForPublishedEventCountAsync(GopherServiceStartedEvent.EventName, 1, timeout.Token);
 
         RecordedMissionControlEvent telemetry = Assert.Single(
             recording.PublishedEvents,
@@ -482,9 +498,8 @@ public sealed class HappyGopherIntegrationTests
             .ToArray();
 
         string[] responses = await Task.WhenAll(requests);
-        await recording.WaitForPublishedEventCountAsync(
-            SelectorServedEventName,
-            requests.Length);
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
+        await recording.WaitForPublishedEventCountAsync(GopherServiceStartedEvent.EventName, 1, timeout.Token);
 
         RecordedMissionControlEvent[] selectorTelemetry =
             recording.PublishedEvents

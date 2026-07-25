@@ -1,4 +1,11 @@
-﻿namespace HappyGopher.Events;
+﻿/*
+ * Happy Gopher Service
+ * Copyright (c) 2026 Kyle Givler
+ * Licensed under the MIT License.
+ */
+
+
+namespace HappyGopher.Events;
 
 public sealed record GopherServiceStartedEvent(string ListenAddress)
 {
