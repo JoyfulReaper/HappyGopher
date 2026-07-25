@@ -133,27 +133,24 @@ public sealed class GopherContentStore
         Array.Sort(directories, ComparePathsByName);
         Array.Sort(files, ComparePathsByName);
 
-        await using var writer = CreateWriter(output);
+        await using GopherResponseWriter writer = new(output);
         foreach (string childDir in directories)
         {
             string name = Path.GetFileName(childDir);
             string selector = PathToSelector(childDir);
 
-            await WriteMenuItemAsync(
-                writer,
+            await writer.WriteMenuItemAsync(
                 '1',
                 name + "/",
                 selector,
                 _options.PublicHost,
                 _options.Port,
-                cancellationToken
-            );
+                cancellationToken);
         }
 
         foreach (string file in files)
         {
-            await WriteMenuItemAsync(
-                writer,
+            await writer.WriteMenuItemAsync(
                 GetItemType(file),
                 Path.GetFileName(file),
                 PathToSelector(file),
@@ -162,7 +159,7 @@ public sealed class GopherContentStore
                 cancellationToken);
         }
 
-        await WriteTerminatorAsync(writer, cancellationToken);
+        await writer.CompleteAsync(cancellationToken);
     }
 
     private static char GetItemType(string path)
