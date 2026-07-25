@@ -244,6 +244,65 @@ public sealed class HappyGopherIntegrationTests
     }
 
     [Fact]
+    public async Task Server_PublishesDynamicPageResponseKindTelemetry()
+    {
+        RecordingMissionControlClient recording = new();
+
+        TestGopherPage page = new(
+            selector: "/dynamic/telemetry",
+            response:
+                "iDynamic telemetry\tfake\t(NULL)\t0\r\n.\r\n",
+            responseKind: GopherResponseKind.Menu);
+
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(
+                missionControlClient: recording,
+                pages: new IGopherPage[] { page });
+
+        string response =
+            await server.RequestAsync("/dynamic/telemetry");
+
+        Assert.Equal(
+            "iDynamic telemetry\tfake\t(NULL)\t0\r\n.\r\n",
+            response);
+
+        using CancellationTokenSource timeout =
+            new(TimeSpan.FromSeconds(5));
+
+        await recording.WaitForPublishedEventCountAsync(
+            SelectorServedEventName,
+            1,
+            timeout.Token);
+
+        RecordedMissionControlEvent telemetry =
+            Assert.Single(
+                recording.PublishedEvents,
+                publishedEvent =>
+                    publishedEvent.EventType ==
+                    SelectorServedEventName);
+
+        Assert.False(
+            string.IsNullOrWhiteSpace(
+                telemetry.CorrelationId));
+
+        SelectorServedEvent payload =
+            Assert.IsType<SelectorServedEvent>(
+                telemetry.Payload);
+
+        Assert.Equal(
+            "/dynamic/telemetry",
+            payload.Selector);
+
+        Assert.Equal(
+            "menu",
+            payload.ResponseType);
+
+        Assert.True(payload.Succeeded);
+        Assert.True(
+            payload.DurationMilliseconds >= 0);
+    }
+
+    [Fact]
     public async Task Server_FallsBackToStaticContentWhenNoDynamicPageMatches()
     {
         TestGopherPage page = new(
