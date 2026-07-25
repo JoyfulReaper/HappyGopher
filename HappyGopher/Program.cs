@@ -30,11 +30,14 @@ builder.Services
 builder.Services.AddMissionControlClient(
     builder.Configuration.GetSection(
         MissionControlClientOptions.SectionName));
-
+builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 builder.Services.AddSingleton<GopherContentStore>();
 builder.Services.AddScoped<GopherPageResolver>();
 builder.Services.AddTcpServer<GopherConnectionHandler, HappyGopherOptions>();
 builder.Services.AddHostedService<GopherLifecycleService>();
+
+// Currently all pages must be registered here.
+builder.Services.AddScoped<IGopherPage, ServerTimePage>();
 
 var host = builder.Build();
 host.Run();
