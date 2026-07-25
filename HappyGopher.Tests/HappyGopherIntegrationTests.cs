@@ -280,6 +280,25 @@ public sealed class HappyGopherIntegrationTests
     }
 
     [Fact]
+    public async Task Server_ServesRegisteredDynamicPage()
+    {
+        TestGopherPage page = new(
+            selector: "/dynamic/test",
+            response: "Dynamic page\r\n.\r\n");
+
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(
+                pages: new IGopherPage[] { page });
+
+        string response =
+            await server.RequestAsync("/dynamic/test");
+
+        Assert.Equal(
+            "Dynamic page\r\n.\r\n",
+            response);
+    }
+
+    [Fact]
     public async Task Server_ReturnsRootSelectorResponse()
     {
         await using TestGopherServer server = await TestGopherServer.StartAsync();
@@ -659,7 +678,8 @@ public sealed class HappyGopherIntegrationTests
         public static async Task<TestGopherServer> StartAsync(
             IMissionControlClient? missionControlClient = null,
             string? telemetryIgnoredRemoteAddress = null,
-            int maxConcurrentConnections = 64)
+            int maxConcurrentConnections = 64,
+            IEnumerable<IGopherPage>? pages = null)
         {
             TestContentStore content = new();
             int port = GetAvailablePort();
@@ -674,6 +694,7 @@ public sealed class HappyGopherIntegrationTests
                 TelemetryIgnoredRemoteAddress =
                     telemetryIgnoredRemoteAddress
             };
+            IGopherPage[] registeredPages = pages?.ToArray() ?? [];
 
             missionControlClient ??= NullMissionControlClient.Instance;
 
@@ -691,6 +712,12 @@ public sealed class HappyGopherIntegrationTests
                         logging.ClearProviders())
                     .ConfigureServices(services =>
                     {
+                        services.AddSingleton<GopherContentStore>();
+
+                        foreach (IGopherPage page in registeredPages)
+                        {
+                            services.AddSingleton<IGopherPage>(page);
+                        }
                         services.AddSingleton(missionControlClient);
                         services.AddSingleton<IOptions<HappyGopherOptions>>(
                             Options.Create(options));
