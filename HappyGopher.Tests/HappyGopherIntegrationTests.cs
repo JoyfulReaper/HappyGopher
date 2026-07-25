@@ -64,6 +64,41 @@ public sealed class HappyGopherIntegrationTests
             throw new InvalidOperationException("Telemetry failure");
     }
 
+    private sealed class StartupTimeoutMissionControlClient :
+        IMissionControlClient
+    {
+        private int _canceledCount;
+
+        public int CanceledCount => Volatile.Read(ref _canceledCount);
+
+        public async Task<bool> TryPublishAsync<TPayload>(
+            string eventType,
+            TPayload payload,
+            DateTimeOffset occurredAt,
+            string? correlationId = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (eventType != GopherServiceStartedEvent.EventName)
+            {
+                return true;
+            }
+
+            try
+            {
+                await Task.Delay(
+                    Timeout.InfiniteTimeSpan,
+                    cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                Interlocked.Increment(ref _canceledCount);
+                throw;
+            }
+
+            return true;
+        }
+    }
+
     private sealed class BlockingMissionControlClient : IMissionControlClient
     {
         private readonly TaskCompletionSource _release =
@@ -95,6 +130,11 @@ public sealed class HappyGopherIntegrationTests
             string? correlationId = null,
             CancellationToken cancellationToken = default)
         {
+            if (eventType != SelectorServedEventName)
+            {
+                return true;
+            }
+
             Interlocked.Increment(ref _startedCount);
             _startedSignal.Release();
 
@@ -145,7 +185,42 @@ public sealed class HappyGopherIntegrationTests
         }
     }
 
+    private const string SelectorServedEventName =
+        "happygopher.selector.served";
+
     private static readonly Encoding WireEncoding = new UTF8Encoding(false);
+
+    [Fact]
+    public async Task Server_PublishesStartupTelemetry()
+    {
+        RecordingMissionControlClient recording = new();
+
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(recording);
+
+        await recording.WaitForPublishedEventCountAsync(
+            GopherServiceStartedEvent.EventName,
+            1);
+
+        RecordedMissionControlEvent telemetry = Assert.Single(
+            recording.PublishedEvents,
+            publishedEvent =>
+                publishedEvent.EventType ==
+                GopherServiceStartedEvent.EventName);
+
+        Assert.Equal(
+            GopherServiceStartedEvent.EventName,
+            telemetry.EventType);
+        Assert.NotEqual(default, telemetry.OccurredAt);
+        Assert.Null(telemetry.CorrelationId);
+
+        GopherServiceStartedEvent payload =
+            Assert.IsType<GopherServiceStartedEvent>(
+                telemetry.Payload);
+        Assert.Equal(
+            $"127.0.0.1:{server.Port}",
+            payload.ListenAddress);
+    }
 
     [Fact]
     public async Task Server_DoesNotPublishTelemetryForIgnoredRemoteAddress()
@@ -170,7 +245,11 @@ public sealed class HappyGopherIntegrationTests
             "iRoot\tfake\t(NULL)\t0\r\n.\r\n",
             response);
 
-        Assert.Empty(recording.PublishedEvents);
+        Assert.DoesNotContain(
+            recording.PublishedEvents,
+            publishedEvent =>
+                publishedEvent.EventType ==
+                SelectorServedEventName);
     }
 
     [Fact]
@@ -195,10 +274,16 @@ public sealed class HappyGopherIntegrationTests
 
         Assert.Equal("iRoot\tfake\t(NULL)\t0\r\n.\r\n", response);
 
-        await recording.WaitForPublishedEventCountAsync(1);
+        await recording.WaitForPublishedEventCountAsync(
+            SelectorServedEventName,
+            1);
 
-        RecordedMissionControlEvent telemetry = Assert.Single(recording.PublishedEvents);
-        Assert.Equal("happygopher.selector.served", telemetry.EventType);
+        RecordedMissionControlEvent telemetry = Assert.Single(
+            recording.PublishedEvents,
+            publishedEvent =>
+                publishedEvent.EventType ==
+                SelectorServedEventName);
+        Assert.Equal(SelectorServedEventName, telemetry.EventType);
         Assert.NotEqual(default, telemetry.OccurredAt);
         Assert.False(string.IsNullOrWhiteSpace(telemetry.CorrelationId));
 
@@ -305,9 +390,15 @@ public sealed class HappyGopherIntegrationTests
 
         Assert.Equal("About\r\n.\r\n", response);
 
-        await recording.WaitForPublishedEventCountAsync(1);
+        await recording.WaitForPublishedEventCountAsync(
+            SelectorServedEventName,
+            1);
 
-        RecordedMissionControlEvent telemetry = Assert.Single(recording.PublishedEvents);
+        RecordedMissionControlEvent telemetry = Assert.Single(
+            recording.PublishedEvents,
+            publishedEvent =>
+                publishedEvent.EventType ==
+                SelectorServedEventName);
         SelectorServedEvent payload = Assert.IsType<SelectorServedEvent>(telemetry.Payload);
         Assert.Equal("/about.txt", payload.Selector);
         Assert.Equal("text", payload.ResponseType);
@@ -325,9 +416,15 @@ public sealed class HappyGopherIntegrationTests
 
         Assert.Contains("iDownloads", response);
 
-        await recording.WaitForPublishedEventCountAsync(1);
+        await recording.WaitForPublishedEventCountAsync(
+            SelectorServedEventName,
+            1);
 
-        RecordedMissionControlEvent telemetry = Assert.Single(recording.PublishedEvents);
+        RecordedMissionControlEvent telemetry = Assert.Single(
+            recording.PublishedEvents,
+            publishedEvent =>
+                publishedEvent.EventType ==
+                SelectorServedEventName);
         SelectorServedEvent payload = Assert.IsType<SelectorServedEvent>(telemetry.Payload);
         Assert.Equal("/downloads", payload.Selector);
         Assert.Equal("menu", payload.ResponseType);
@@ -356,10 +453,16 @@ public sealed class HappyGopherIntegrationTests
         Assert.Contains("3Selector not found.\terror\t127.0.0.1\t", response);
         Assert.EndsWith(".\r\n", response);
 
-        await recording.WaitForPublishedEventCountAsync(1);
+        await recording.WaitForPublishedEventCountAsync(
+            SelectorServedEventName,
+            1);
 
-        RecordedMissionControlEvent telemetry = Assert.Single(recording.PublishedEvents);
-        Assert.Equal("happygopher.selector.served", telemetry.EventType);
+        RecordedMissionControlEvent telemetry = Assert.Single(
+            recording.PublishedEvents,
+            publishedEvent =>
+                publishedEvent.EventType ==
+                SelectorServedEventName);
+        Assert.Equal(SelectorServedEventName, telemetry.EventType);
 
         SelectorServedEvent payload = Assert.IsType<SelectorServedEvent>(telemetry.Payload);
         Assert.Equal("/missing.txt", payload.Selector);
@@ -379,13 +482,23 @@ public sealed class HappyGopherIntegrationTests
             .ToArray();
 
         string[] responses = await Task.WhenAll(requests);
-        await recording.WaitForPublishedEventCountAsync(requests.Length);
+        await recording.WaitForPublishedEventCountAsync(
+            SelectorServedEventName,
+            requests.Length);
+
+        RecordedMissionControlEvent[] selectorTelemetry =
+            recording.PublishedEvents
+                .Where(
+                    publishedEvent =>
+                        publishedEvent.EventType ==
+                        SelectorServedEventName)
+                .ToArray();
 
         Assert.All(responses, response => Assert.Equal("About\r\n.\r\n", response));
-        Assert.Equal(requests.Length, recording.PublishedEvents.Count);
-        Assert.All(recording.PublishedEvents, telemetry =>
+        Assert.Equal(requests.Length, selectorTelemetry.Length);
+        Assert.All(selectorTelemetry, telemetry =>
         {
-            Assert.Equal("happygopher.selector.served", telemetry.EventType);
+            Assert.Equal(SelectorServedEventName, telemetry.EventType);
             SelectorServedEvent payload = Assert.IsType<SelectorServedEvent>(telemetry.Payload);
             Assert.Equal("/about.txt", payload.Selector);
             Assert.Equal("text", payload.ResponseType);
@@ -394,7 +507,7 @@ public sealed class HappyGopherIntegrationTests
     }
 
     [Fact]
-    public async Task Server_IgnoresMissionControlClientReturningFalse()
+    public async Task Server_StartupTelemetryReturningFalseDoesNotPreventRequests()
     {
         await using TestGopherServer server = await TestGopherServer.StartAsync(FalseMissionControlClient.Instance);
         server.Content.WriteText("about.txt", "About");
@@ -405,7 +518,7 @@ public sealed class HappyGopherIntegrationTests
     }
 
     [Fact]
-    public async Task Server_IgnoresMissionControlClientThrowing()
+    public async Task Server_StartupTelemetryThrowingDoesNotPreventRequests()
     {
         await using TestGopherServer server = await TestGopherServer.StartAsync(new ThrowingMissionControlClient());
         server.Content.WriteText("about.txt", "About");
@@ -413,6 +526,20 @@ public sealed class HappyGopherIntegrationTests
         string response = await server.RequestAsync("/about.txt");
 
         Assert.Equal("About\r\n.\r\n", response);
+    }
+
+    [Fact]
+    public async Task Server_StartupTelemetryTimingOutDoesNotPreventRequests()
+    {
+        StartupTimeoutMissionControlClient timeoutClient = new();
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(timeoutClient);
+        server.Content.WriteText("about.txt", "About");
+
+        string response = await server.RequestAsync("/about.txt");
+
+        Assert.Equal("About\r\n.\r\n", response);
+        Assert.Equal(1, timeoutClient.CanceledCount);
     }
 
     [Fact]

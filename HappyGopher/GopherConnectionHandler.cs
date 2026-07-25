@@ -66,7 +66,12 @@ public sealed class GopherConnectionHandler(
 
         try
         {
-            string? request = await GopherSelectorReader.ReadAsync(stream, options.Value.MaxSelectorBytes, options.Value.RequestTimeoutSeconds, cancellationToken);
+            string? request = await GopherSelectorReader.ReadAsync(
+                stream,
+                options.Value.MaxSelectorBytes,
+                options.Value.RequestTimeoutSeconds,
+                cancellationToken);
+
             if (request is null)
             {
                 return null;
