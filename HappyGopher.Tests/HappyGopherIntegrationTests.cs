@@ -6,7 +6,10 @@
 
 using HappyGopher.Events;
 using JoyfulReaperLib.MissionControl;
-using Microsoft.Extensions.Logging.Abstractions;
+using JoyfulReaperLib.TcpServer;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Net;
 using System.Net.Sockets;
@@ -251,6 +254,36 @@ public sealed class HappyGopherIntegrationTests
     }
 
     [Fact]
+    public async Task Server_HoldsConnectionSlotWhileWaitingForSelector()
+    {
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(maxConcurrentConnections: 1);
+        server.Content.WriteText("about.txt", "About");
+
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
+        using TcpClient firstClient = new();
+        await firstClient.ConnectAsync(
+            IPAddress.Loopback,
+            server.Port,
+            timeout.Token);
+
+        await using NetworkStream firstStream = firstClient.GetStream();
+        await firstStream.WriteAsync(
+            WireEncoding.GetBytes("/incomplete"),
+            timeout.Token);
+
+        Task<string> secondRequest = server.RequestAsync("/about.txt");
+
+        await Task.Delay(TimeSpan.FromMilliseconds(250), timeout.Token);
+        Assert.False(secondRequest.IsCompleted);
+
+        firstClient.Dispose();
+
+        string secondResponse = await secondRequest.WaitAsync(timeout.Token);
+        Assert.Equal("About\r\n.\r\n", secondResponse);
+    }
+
+    [Fact]
     public async Task Server_ReturnsTextFileResponse()
     {
         await using TestGopherServer server = await TestGopherServer.StartAsync();
@@ -455,18 +488,18 @@ public sealed class HappyGopherIntegrationTests
 
     private sealed class TestGopherServer : IAsyncDisposable
     {
-        private readonly HappyGopherWorker _worker;
+        private readonly IHost _host;
         private bool _stopped;
 
         private TestGopherServer(
             TestContentStore content,
             int port,
-            HappyGopherWorker worker,
+            IHost host,
             IMissionControlClient missionControlClient)
         {
             Content = content;
             Port = port;
-            _worker = worker;
+            _host = host;
             MissionControlClient = missionControlClient;
         }
 
@@ -495,17 +528,49 @@ public sealed class HappyGopherIntegrationTests
 
             missionControlClient ??= NullMissionControlClient.Instance;
 
-            GopherContentStore store = new(
-                Options.Create(options),
-                NullLogger<GopherContentStore>.Instance);
-            HappyGopherWorker worker = new(
-                NullLogger<HappyGopherWorker>.Instance,
-                Options.Create(options),
-                store,
-                missionControlClient);
-            await worker.StartAsync(CancellationToken.None);
-            await WaitForServerAsync(port);
-            return new TestGopherServer(content, port, worker, missionControlClient);
+            IHost? host = null;
+
+            try
+            {
+                host = Host.CreateDefaultBuilder()
+                    .ConfigureLogging(logging =>
+                        logging.ClearProviders())
+                    .ConfigureServices(services =>
+                    {
+                        services.AddSingleton(missionControlClient);
+                        services.AddSingleton<IOptions<HappyGopherOptions>>(
+                            Options.Create(options));
+                        services.AddSingleton<GopherContentStore>();
+                        services.AddTcpServer<
+                            GopherConnectionHandler,
+                            HappyGopherOptions>();
+                        services.AddHostedService<GopherLifecycleService>();
+                    })
+                    .Build();
+
+                using CancellationTokenSource timeout =
+                    new(TimeSpan.FromSeconds(5));
+                await host.StartAsync(timeout.Token);
+
+                return new TestGopherServer(
+                    content,
+                    port,
+                    host,
+                    missionControlClient);
+            }
+            catch
+            {
+                try
+                {
+                    host?.Dispose();
+                }
+                finally
+                {
+                    content.Dispose();
+                }
+
+                throw;
+            }
         }
 
         public async Task<string> RequestAsync(string selector)
@@ -517,7 +582,6 @@ public sealed class HappyGopherIntegrationTests
             await using NetworkStream stream = client.GetStream();
             byte[] request = WireEncoding.GetBytes(selector + "\r\n");
             await stream.WriteAsync(request, timeout.Token);
-            await stream.FlushAsync(timeout.Token);
             client.Client.Shutdown(SocketShutdown.Send);
 
             using MemoryStream response = new();
@@ -544,15 +608,28 @@ public sealed class HappyGopherIntegrationTests
             }
 
             _stopped = true;
-            await _worker.StopAsync(cancellationToken);
+            await _host.StopAsync(cancellationToken);
         }
 
         public async ValueTask DisposeAsync()
         {
-            using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
-            await StopAsync(timeout.Token);
-            Content.Dispose();
-            _worker.Dispose();
+            try
+            {
+                using CancellationTokenSource timeout =
+                    new(TimeSpan.FromSeconds(5));
+                await StopAsync(timeout.Token);
+            }
+            finally
+            {
+                try
+                {
+                    _host.Dispose();
+                }
+                finally
+                {
+                    Content.Dispose();
+                }
+            }
         }
 
         private static int GetAvailablePort()
@@ -562,31 +639,6 @@ public sealed class HappyGopherIntegrationTests
             int port = ((IPEndPoint)listener.LocalEndpoint).Port;
             listener.Stop();
             return port;
-        }
-
-        private static async Task WaitForServerAsync(int port)
-        {
-            Exception? lastException = null;
-
-            for (int attempt = 0; attempt < 20; attempt++)
-            {
-                try
-                {
-                    using TcpClient client = new();
-                    using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(1));
-                    await client.ConnectAsync(IPAddress.Loopback, port, timeout.Token);
-                    return;
-                }
-                catch (SocketException exception)
-                {
-                    lastException = exception;
-                    await Task.Delay(25);
-                }
-            }
-
-            throw new InvalidOperationException(
-                $"Test server did not start on port {port}.",
-                lastException);
         }
     }
 }

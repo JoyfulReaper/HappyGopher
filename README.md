@@ -345,7 +345,8 @@ Gopher does not provide encryption. Traffic, selectors, and downloaded content a
 HappyGopher.slnx
 ├── HappyGopher/
 │   ├── Program.cs
-│   ├── HappyGopherWorker.cs
+│   ├── GopherConnectionHandler.cs
+│   ├── GopherLifecycleService.cs
 │   ├── GopherSelectorReader.cs
 │   ├── GopherPathSecurity.cs
 │   ├── GopherMenuFields.cs
