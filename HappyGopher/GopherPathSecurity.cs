@@ -1,5 +1,5 @@
 /*
- * Happy Gopher Server
+ * Happy Gopher Service
  * Copyright (c) 2026 Kyle Givler
  * Licensed under the MIT License.
  */
@@ -10,9 +10,7 @@ internal static class GopherPathSecurity
 {
     public static bool IsInsideRoot(string contentRoot, string candidate)
     {
-        string relativePath = Path.GetRelativePath(
-            contentRoot,
-            candidate);
+        string relativePath = Path.GetRelativePath(contentRoot, candidate);
 
         if (Path.IsPathRooted(relativePath))
         {
@@ -24,18 +22,14 @@ internal static class GopherPathSecurity
             return false;
         }
 
-        if (relativePath.StartsWith(
-            $"..{Path.DirectorySeparatorChar}",
-            StringComparison.Ordinal))
+        if (relativePath.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
         {
             return false;
         }
 
         return Path.AltDirectorySeparatorChar ==
                Path.DirectorySeparatorChar ||
-               !relativePath.StartsWith(
-                   $"..{Path.AltDirectorySeparatorChar}",
-                   StringComparison.Ordinal);
+               !relativePath.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal);
     }
 
     public static bool ContainsReparsePoint(string contentRoot, string candidate)
@@ -47,9 +41,7 @@ internal static class GopherPathSecurity
         }
 
         string current = contentRoot;
-        foreach (string part in relative.Split(
-            Path.DirectorySeparatorChar,
-            StringSplitOptions.RemoveEmptyEntries))
+        foreach (string part in relative.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
         {
             current = Path.Combine(current, part);
             if (!File.Exists(current) && !Directory.Exists(current))

@@ -20,8 +20,7 @@ public sealed class GopherConnectionHandler(
     GopherContentStore gopherContentStore,
     IMissionControlClient missionControlClient) : ITcpConnectionHandler
 {
-    private static readonly TimeSpan TelemetryPublishTimeout =
-        TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan TelemetryPublishTimeout = TimeSpan.FromSeconds(2); // TODO Make configurable
 
     public async ValueTask HandleAsync(
         TcpConnectionContext context,
@@ -69,25 +68,17 @@ public sealed class GopherConnectionHandler(
         GopherResponseKind? responseKind = null;
         bool responseCompleted = false;
 
-        bool isIgnoredTelemetrySource = IsIgnoredTelemetrySource(
-            remote,
-            options.TelemetryIgnoredRemoteAddress);
+        bool isIgnoredTelemetrySource = IsIgnoredTelemetrySource(remote, options.TelemetryIgnoredRemoteAddress);
 
         try
         {
-            string? request = await GopherSelectorReader.ReadAsync(
-                stream,
-                options.MaxSelectorBytes,
-                options.RequestTimeoutSeconds,
-                cancellationToken);
-
+            string? request = await GopherSelectorReader.ReadAsync(stream, options.MaxSelectorBytes, options.RequestTimeoutSeconds, cancellationToken);
             if (request is null)
             {
                 return null;
             }
 
             int tabIndex = request.IndexOf('\t');
-
             selector = tabIndex >= 0
                 ? request[..tabIndex]
                 : request;
@@ -98,11 +89,7 @@ public sealed class GopherConnectionHandler(
                 remote,
                 selector);
 
-            responseKind = await gopherContentStore.WriteResponseAsync(
-                selector,
-                stream,
-                cancellationToken);
-
+            responseKind = await gopherContentStore.WriteResponseAsync(selector, stream, cancellationToken);
             responseCompleted = true;
         }
         catch (OperationCanceledException)
@@ -185,9 +172,7 @@ public sealed class GopherConnectionHandler(
         ILogger logger,
         CancellationToken cancellationToken)
     {
-        using CancellationTokenSource timeout =
-            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-
+        using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TelemetryPublishTimeout);
 
         try
@@ -241,18 +226,13 @@ public sealed class GopherConnectionHandler(
         EndPoint? remote,
         string? ignoredRemoteAddress)
     {
-        string? remoteAddress =
-            (remote as IPEndPoint)?
-                .Address
-                .MapToIPv4()
-                .ToString();
+        string? remoteAddress = (remote as IPEndPoint)?
+            .Address
+            .MapToIPv4()
+            .ToString();
 
-        return
-            !string.IsNullOrWhiteSpace(ignoredRemoteAddress) &&
-            string.Equals(
-                remoteAddress,
-                ignoredRemoteAddress,
-                StringComparison.OrdinalIgnoreCase);
+        return !string.IsNullOrWhiteSpace(ignoredRemoteAddress) &&
+            string.Equals(remoteAddress, ignoredRemoteAddress, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ToResponseType(

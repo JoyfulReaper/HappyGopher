@@ -22,10 +22,7 @@ public sealed class GopherLifecycleService(
 
     public Task StartedAsync(CancellationToken cancellationToken)
     {
-        var listenAddress =
-            IPAddressUtils.ParseListenAddress(
-                options.Value.ListenAddress);
-
+        var listenAddress = IPAddressUtils.ParseListenAddress(options.Value.ListenAddress);
         logger.LogInformation(
             "HappyGopher Server Listening on {Address}:{Port}; content root is {ContentRoot}",
             listenAddress,
@@ -38,7 +35,6 @@ public sealed class GopherLifecycleService(
     public Task StoppingAsync(CancellationToken cancellationToken)
     {
         logger.LogInformation("HappyGopher Server Stopping...");
-
         return Task.CompletedTask;
     }
 

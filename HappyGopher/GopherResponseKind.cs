@@ -1,4 +1,10 @@
-﻿namespace HappyGopher;
+﻿/*
+ * Happy Gopher Service
+ * Copyright (c) 2026 Kyle Givler
+ * Licensed under the MIT License.
+ */
+
+namespace HappyGopher;
 
 public enum GopherResponseKind
 {
