@@ -5,6 +5,7 @@
  */
 
 using HappyGopher;
+using HappyGopher.Pages;
 using JoyfulReaperLib.MissionControl;
 using JoyfulReaperLib.TcpServer;
 
@@ -31,6 +32,7 @@ builder.Services.AddMissionControlClient(
         MissionControlClientOptions.SectionName));
 
 builder.Services.AddSingleton<GopherContentStore>();
+builder.Services.AddScoped<GopherPageResolver>();
 builder.Services.AddTcpServer<GopherConnectionHandler, HappyGopherOptions>();
 builder.Services.AddHostedService<GopherLifecycleService>();
 
