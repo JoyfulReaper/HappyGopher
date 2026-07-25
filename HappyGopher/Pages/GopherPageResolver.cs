@@ -9,7 +9,7 @@ namespace HappyGopher.Pages;
 /// <summary>
 /// Resolves registered dynamic Gopher pages by selector.
 /// </summary>
-internal sealed class GopherPageResolver
+public sealed class GopherPageResolver
 {
     private readonly Dictionary<string, IGopherPage> _pages = new(StringComparer.Ordinal);
 

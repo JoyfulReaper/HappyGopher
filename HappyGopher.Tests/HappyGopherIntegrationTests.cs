@@ -5,6 +5,7 @@
  */
 
 using HappyGopher.Events;
+using HappyGopher.Pages;
 using JoyfulReaperLib.MissionControl;
 using JoyfulReaperLib.TcpServer;
 using Microsoft.Extensions.DependencyInjection;
@@ -675,6 +676,11 @@ public sealed class HappyGopherIntegrationTests
             try
             {
                 host = Host.CreateDefaultBuilder()
+                    .UseDefaultServiceProvider(options =>
+                    {
+                        options.ValidateOnBuild = true;
+                        options.ValidateScopes = true;
+                    })
                     .ConfigureLogging(logging =>
                         logging.ClearProviders())
                     .ConfigureServices(services =>
@@ -683,6 +689,7 @@ public sealed class HappyGopherIntegrationTests
                         services.AddSingleton<IOptions<HappyGopherOptions>>(
                             Options.Create(options));
                         services.AddSingleton<GopherContentStore>();
+                        services.AddScoped<GopherPageResolver>();
                         services.AddTcpServer<
                             GopherConnectionHandler,
                             HappyGopherOptions>();
