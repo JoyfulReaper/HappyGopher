@@ -4,9 +4,8 @@
  * Licensed under the MIT License.
  */
 
-using HappyGopher.Events;
 using HappyGopher.Pages;
-using JoyfulReaperLib.MissionControl;
+using HappyGopher.Telemetry;
 using JoyfulReaperLib.TcpServer;
 using Microsoft.Extensions.Options;
 using System.Diagnostics;
@@ -20,10 +19,8 @@ public sealed class GopherConnectionHandler(
     IOptions<HappyGopherOptions> options,
     GopherPageResolver gopherPageResolver,
     GopherContentStore gopherContentStore,
-    IMissionControlClient missionControlClient) : ITcpConnectionHandler
+    TelemetryService telemetryService) : ITcpConnectionHandler
 {
-    private static readonly TimeSpan TelemetryPublishTimeout = TimeSpan.FromSeconds(2); // TODO Make configurable
-
     public async ValueTask HandleAsync(
         TcpConnectionContext context,
         CancellationToken cancellationToken)
@@ -42,10 +39,9 @@ public sealed class GopherConnectionHandler(
         long connectionId = context.ConnectionId;
 
         context.RegisterAfterClose(afterCloseToken =>
-            PublishSelectorServedTelemetryAsync(
+            telemetryService.PublishSelectorServedTelemetryAsync(
                 connectionId,
                 result,
-                missionControlClient,
                 logger,
                 afterCloseToken));
     }
@@ -64,7 +60,7 @@ public sealed class GopherConnectionHandler(
         GopherResponseKind? responseKind = null;
         bool responseCompleted = false;
 
-        bool isIgnoredTelemetrySource = IsIgnoredTelemetrySource(remote, options.Value.TelemetryIgnoredRemoteAddress);
+        bool isIgnoredTelemetrySource = TelemetryService.IsIgnoredTelemetrySource(remote, options.Value.TelemetryIgnoredRemoteAddress);
 
         try
         {
@@ -172,91 +168,6 @@ public sealed class GopherConnectionHandler(
             Succeeded: succeeded,
             OccurredAt: occurredAt,
             CorrelationId: correlationId);
-    }
-
-    internal static async ValueTask PublishSelectorServedTelemetryAsync(
-        long connectionId,
-        GopherSessionResult result,
-        IMissionControlClient missionControlClient,
-        ILogger logger,
-        CancellationToken cancellationToken)
-    {
-        using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TelemetryPublishTimeout);
-
-        try
-        {
-            bool published = await missionControlClient.TryPublishAsync(
-                eventType: "happygopher.selector.served",
-                payload: new SelectorServedEvent(
-                    result.Selector,
-                    ToResponseType(result.ResponseKind),
-                    result.Remote,
-                    result.DurationMilliseconds,
-                    result.Succeeded),
-                payloadTypeInfo: HappyGopherJsonContext.Default.SelectorServedEvent,
-                occurredAt: result.OccurredAt,
-                correlationId: result.CorrelationId,
-                cancellationToken: timeout.Token);
-
-            if (!published)
-            {
-                logger.LogWarning(
-                    "Mission Control did not accept telemetry for selector {Selector} on connection {ConnectionId}.",
-                    result.Selector,
-                    connectionId);
-            }
-        }
-        catch (OperationCanceledException)
-            when (cancellationToken.IsCancellationRequested)
-        {
-            logger.LogDebug(
-                "Telemetry publishing stopped for selector {Selector} on connection {ConnectionId}.",
-                result.Selector,
-                connectionId);
-        }
-        catch (OperationCanceledException)
-        {
-            logger.LogWarning(
-                "Timed out publishing telemetry for selector {Selector} on connection {ConnectionId}.",
-                result.Selector,
-                connectionId);
-        }
-        catch (Exception exception)
-        {
-            logger.LogWarning(
-                exception,
-                "Failed to publish telemetry for selector {Selector} on connection {ConnectionId}.",
-                result.Selector,
-                connectionId);
-        }
-    }
-
-    private static bool IsIgnoredTelemetrySource(
-        EndPoint? remote,
-        string? ignoredRemoteAddress)
-    {
-        string? remoteAddress = (remote as IPEndPoint)?
-            .Address
-            .MapToIPv4()
-            .ToString();
-
-        return !string.IsNullOrWhiteSpace(ignoredRemoteAddress) &&
-            string.Equals(remoteAddress, ignoredRemoteAddress, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string ToResponseType(
-        GopherResponseKind responseKind)
-    {
-        return responseKind switch
-        {
-            GopherResponseKind.Menu => "menu",
-            GopherResponseKind.Text => "text",
-            GopherResponseKind.Binary => "binary",
-            GopherResponseKind.NotFound => "not-found",
-            GopherResponseKind.InvalidSelector => "invalid-selector",
-            _ => "unknown"
-        };
     }
 }
 

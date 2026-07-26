@@ -7,6 +7,7 @@
 using HappyGopher.Events;
 using HappyGopher.Gopher;
 using HappyGopher.Pages;
+using HappyGopher.Telemetry;
 using JoyfulReaperLib.MissionControl;
 using JoyfulReaperLib.TcpServer;
 using Microsoft.Extensions.DependencyInjection;
@@ -822,14 +823,13 @@ public sealed class HappyGopherIntegrationTests
                         {
                             services.AddSingleton<IGopherPage>(page);
                         }
+
                         services.AddSingleton(missionControlClient);
-                        services.AddSingleton<IOptions<HappyGopherOptions>>(
-                            Options.Create(options));
+                        services.AddSingleton<IOptions<HappyGopherOptions>>(Options.Create(options));
                         services.AddSingleton<GopherContentStore>();
+                        services.AddSingleton<TelemetryService>();
                         services.AddScoped<GopherPageResolver>();
-                        services.AddTcpServer<
-                            GopherConnectionHandler,
-                            HappyGopherOptions>();
+                        services.AddTcpServer<GopherConnectionHandler, HappyGopherOptions>();
                         services.AddHostedService<GopherLifecycleService>();
                     })
                     .Build();
