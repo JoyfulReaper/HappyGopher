@@ -11,4 +11,7 @@ internal sealed record SelectorServedEvent(
     string ResponseType,
     string Remote,
     long DurationMilliseconds,
-    bool Succeeded);
+    bool Succeeded)
+{
+    public const string EventName = "happygopher.selector.served";
+}

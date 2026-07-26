@@ -169,12 +169,3 @@ public sealed class GopherConnectionHandler(
             CorrelationId: correlationId);
     }
 }
-
-internal sealed record GopherSessionResult(
-    string Selector,
-    GopherResponseKind ResponseKind,
-    string Remote,
-    long DurationMilliseconds,
-    bool Succeeded,
-    DateTimeOffset OccurredAt,
-    string CorrelationId);

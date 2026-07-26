@@ -1,11 +1,17 @@
-﻿using HappyGopher.Events;
+﻿/*
+ * Happy Gopher Service
+ * Copyright (c) 2026 Kyle Givler
+ * Licensed under the MIT License.
+ */
+
+using HappyGopher.Events;
 using HappyGopher.Gopher;
 using JoyfulReaperLib.MissionControl;
 using System.Net;
 
 namespace HappyGopher.Telemetry;
 
-public class TelemetryService(
+public sealed class TelemetryService(
     IMissionControlClient missionControlClient,
     ILogger<TelemetryService> logger)
 {
@@ -22,7 +28,7 @@ public class TelemetryService(
         try
         {
             bool published = await missionControlClient.TryPublishAsync(
-                eventType: "happygopher.selector.served",
+                eventType: SelectorServedEvent.EventName,
                 payload: new SelectorServedEvent(
                     result.Selector,
                     ToResponseType(result.ResponseKind),
