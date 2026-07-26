@@ -5,14 +5,15 @@ using System.Net;
 
 namespace HappyGopher.Telemetry;
 
-public class TelemetryService(IMissionControlClient missionControlClient)
+public class TelemetryService(
+    IMissionControlClient missionControlClient,
+    ILogger<TelemetryService> logger)
 {
     private static readonly TimeSpan TelemetryPublishTimeout = TimeSpan.FromSeconds(2); // TODO Make configurable
 
     internal async ValueTask PublishSelectorServedTelemetryAsync(
         long connectionId,
         GopherSessionResult result,
-        ILogger logger,
         CancellationToken cancellationToken)
     {
         using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

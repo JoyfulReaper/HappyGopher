@@ -42,7 +42,6 @@ public sealed class GopherConnectionHandler(
             telemetryService.PublishSelectorServedTelemetryAsync(
                 connectionId,
                 result,
-                logger,
                 afterCloseToken));
     }
 
