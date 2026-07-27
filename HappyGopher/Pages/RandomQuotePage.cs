@@ -11,7 +11,7 @@ namespace HappyGopher.Pages;
 
 public sealed class RandomQuotePage(
     IHappyQotdClient happyQotdClient,
-    ILogger<QuoteOfTheDayPage> logger) : IGopherPage
+    ILogger<RandomQuotePage> logger) : IGopherPage
 {
     public const string PageSelector = "/random-quote";
 
@@ -64,7 +64,7 @@ public sealed class RandomQuotePage(
                 Selector);
 
             await writer.WriteTextLineAsync(
-                "Quote of the day is temporarily unavailable.",
+                "Random Quote is temporarily unavailable.",
                 cancellationToken);
         }
         catch (OperationCanceledException)
@@ -75,7 +75,7 @@ public sealed class RandomQuotePage(
                 Selector);
 
             await writer.WriteTextLineAsync(
-                "Quote of the day request timed out.",
+                "Random Quote request timed out.",
                 cancellationToken);
         }
 
