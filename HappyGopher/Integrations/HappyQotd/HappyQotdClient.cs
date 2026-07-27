@@ -13,8 +13,7 @@ public sealed class HappyQotdClient(HttpClient httpClient) : IHappyQotdClient
 {
     public async Task<HappyQotdQuote?> GetQuoteOfTheDayAsync(CancellationToken cancellationToken = default)
     {
-        using HttpResponseMessage response =
-            await httpClient.GetAsync("api/quotes/today", cancellationToken);
+        using HttpResponseMessage response = await httpClient.GetAsync("api/quotes/today", cancellationToken);
 
         if (response.StatusCode == HttpStatusCode.NotFound)
         {
@@ -23,7 +22,20 @@ public sealed class HappyQotdClient(HttpClient httpClient) : IHappyQotdClient
 
         response.EnsureSuccessStatusCode();
 
-        return await response.Content
-            .ReadFromJsonAsync<HappyQotdQuote>(cancellationToken);
+        return await response.Content.ReadFromJsonAsync<HappyQotdQuote>(cancellationToken);
+    }
+
+    public async Task<HappyQotdQuote?> GetRandomQuoteAsync(CancellationToken cancellationToken = default)
+    {
+        using HttpResponseMessage response = await httpClient.GetAsync("api/quotes/random", cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+
+        return await response.Content.ReadFromJsonAsync<HappyQotdQuote>(cancellationToken);
     }
 }

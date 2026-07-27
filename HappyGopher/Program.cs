@@ -70,6 +70,7 @@ if (builder.Configuration.GetValue<bool>($"{HappyQotdOptions.SectionName}:Enable
            client.Timeout = TimeSpan.FromMilliseconds(options.TimeoutMilliseconds);
        });
     builder.Services.AddScoped<IGopherPage, QuoteOfTheDayPage>();
+    builder.Services.AddScoped<IGopherPage, RandomQuotePage>();
 }
 
 

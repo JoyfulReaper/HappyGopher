@@ -9,4 +9,5 @@ namespace HappyGopher.Integrations.HappyQotd;
 public interface IHappyQotdClient
 {
     Task<HappyQotdQuote?> GetQuoteOfTheDayAsync(CancellationToken cancellationToken = default);
+    Task<HappyQotdQuote?> GetRandomQuoteAsync(CancellationToken cancellationToken = default);
 }
