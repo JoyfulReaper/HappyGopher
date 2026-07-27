@@ -5,18 +5,22 @@
  */
 
 using HappyGopher.Gopher;
+using HappyGopher.Integrations.HappyQotd;
 using HappyGopher.Pages;
 using HappyGopher.Telemetry;
 using JoyfulReaperLib.MissionControl;
 using JoyfulReaperLib.TcpServer;
+using Microsoft.Extensions.Options;
 
 var builder = Host.CreateApplicationBuilder(args);
 
+// Windows Service Support
 builder.Services.AddWindowsService(options =>
 {
     options.ServiceName = "Happy Gopher Service";
 });
 
+// Gopher Configuration
 builder.Services
     .AddOptions<HappyGopherOptions>()
     .Bind(builder.Configuration.GetSection(HappyGopherOptions.SectionName))
@@ -28,6 +32,7 @@ builder.Services
     .Validate(options => !string.IsNullOrWhiteSpace(options.PublicHost), "Gopher:PublicHost must not be empty.")
     .ValidateOnStart();
 
+// Mission Control Integration
 builder.Services.AddMissionControlClient(
     builder.Configuration.GetSection(
         MissionControlClientOptions.SectionName));
@@ -40,6 +45,34 @@ builder.Services.AddHostedService<GopherLifecycleService>();
 
 // Currently all pages must be registered here.
 builder.Services.AddScoped<IGopherPage, ServerTimePage>();
+
+// QOTD integration
+if (builder.Configuration.GetValue<bool>($"{HappyQotdOptions.SectionName}:Enabled"))
+{
+    builder.Services.AddOptions<HappyQotdOptions>()
+    .Bind(builder.Configuration.GetSection(HappyQotdOptions.SectionName))
+    .Validate(options =>
+        Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out _),
+        "HappyQotd:BaseUrl must be an absolute URI when the integration is enabled.")
+    .Validate(options =>
+        options.TimeoutMilliseconds > 0,
+        "HappyQotd:TimeoutMilliseconds must be positive when the integration is enabled.")
+    .ValidateOnStart();
+
+    builder.Services.AddHttpClient<IHappyQotdClient, HappyQotdClient>(
+       (services, client) =>
+       {
+           HappyQotdOptions options = services
+               .GetRequiredService<IOptions<HappyQotdOptions>>()
+               .Value;
+
+           client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/') + "/");
+           client.Timeout = TimeSpan.FromMilliseconds(options.TimeoutMilliseconds);
+       });
+    builder.Services.AddScoped<IGopherPage, QuoteOfTheDayPage>();
+}
+
+
 
 var host = builder.Build();
 host.Run();
