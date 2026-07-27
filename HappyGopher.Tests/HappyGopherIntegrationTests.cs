@@ -532,6 +532,175 @@ public sealed class HappyGopherIntegrationTests
     }
 
     [Fact]
+    public async Task Server_ServesExtensionlessAsciiFileAsText()
+    {
+        RecordingMissionControlClient recording = new();
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(recording);
+        server.Content.WriteText("readme", "First line\n.hidden");
+
+        (byte[] response, string responseType) =
+            await RequestWithResponseTypeAsync(
+                server,
+                recording,
+                "/readme");
+
+        Assert.Equal("text", responseType);
+        Assert.Equal(
+            WireEncoding.GetBytes("First line\r\n..hidden\r\n.\r\n"),
+            response);
+    }
+
+    [Fact]
+    public async Task Server_ServesExtensionlessUtf8FileAsText()
+    {
+        RecordingMissionControlClient recording = new();
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(recording);
+        server.Content.WriteText("welcome", "Héllo\n世界");
+
+        (byte[] response, string responseType) =
+            await RequestWithResponseTypeAsync(
+                server,
+                recording,
+                "/welcome");
+
+        Assert.Equal("text", responseType);
+        Assert.Equal(
+            WireEncoding.GetBytes("Héllo\r\n世界\r\n.\r\n"),
+            response);
+    }
+
+    [Fact]
+    public async Task Server_ServesExtensionlessFileContainingNulAsBinary()
+    {
+        RecordingMissionControlClient recording = new();
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(recording);
+        byte[] contents = [0x41, 0x00, 0x42, 0x0D, 0x0A, 0x2E];
+        server.Content.WriteBytes("nul-data", contents);
+
+        (byte[] response, string responseType) =
+            await RequestWithResponseTypeAsync(
+                server,
+                recording,
+                "/nul-data");
+
+        Assert.Equal("binary", responseType);
+        Assert.Equal(contents, response);
+    }
+
+    [Fact]
+    public async Task Server_ServesExtensionlessFileContainingControlByteAsBinary()
+    {
+        RecordingMissionControlClient recording = new();
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(recording);
+        byte[] contents = [0x41, 0x01, 0x42, 0x0D, 0x0A, 0x2E];
+        server.Content.WriteBytes("control-data", contents);
+
+        (byte[] response, string responseType) =
+            await RequestWithResponseTypeAsync(
+                server,
+                recording,
+                "/control-data");
+
+        Assert.Equal("binary", responseType);
+        Assert.Equal(contents, response);
+    }
+
+    [Fact]
+    public async Task Server_AllowsCrLfAndTabInExtensionlessTextFile()
+    {
+        RecordingMissionControlClient recording = new();
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(recording);
+        server.Content.WriteBytes(
+            "whitespace",
+            WireEncoding.GetBytes(
+                "first\rsecond\nthird\tvalue\r\nfourth"));
+
+        (byte[] response, string responseType) =
+            await RequestWithResponseTypeAsync(
+                server,
+                recording,
+                "/whitespace");
+
+        Assert.Equal("text", responseType);
+        Assert.Equal(
+            WireEncoding.GetBytes(
+                "first\r\nsecond\r\nthird\tvalue\r\nfourth\r\n.\r\n"),
+            response);
+    }
+
+    [Fact]
+    public async Task Server_ServesKnownTextExtensionAsText()
+    {
+        RecordingMissionControlClient recording = new();
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(recording);
+        server.Content.WriteText("known.txt", "Known text");
+
+        (byte[] response, string responseType) =
+            await RequestWithResponseTypeAsync(
+                server,
+                recording,
+                "/known.txt");
+
+        Assert.Equal("text", responseType);
+        Assert.Equal(
+            WireEncoding.GetBytes("Known text\r\n.\r\n"),
+            response);
+    }
+
+    [Fact]
+    public async Task Server_ServesUnknownNamedExtensionAsBinaryWhenContentsLookTextual()
+    {
+        RecordingMissionControlClient recording = new();
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(recording);
+        byte[] contents = WireEncoding.GetBytes("Looks like text\r\n.");
+        server.Content.WriteBytes("unknown.custom", contents);
+
+        (byte[] response, string responseType) =
+            await RequestWithResponseTypeAsync(
+                server,
+                recording,
+                "/unknown.custom");
+
+        Assert.Equal("binary", responseType);
+        Assert.Equal(contents, response);
+    }
+
+    [Fact]
+    public async Task Server_GeneratedMenuAdvertisesExtensionlessTextFileAsTypeZero()
+    {
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync();
+        server.Content.WriteText("readme", "Read me");
+
+        string response = await server.RequestAsync(string.Empty);
+
+        Assert.Contains(
+            $"0readme\t/readme\t127.0.0.1\t{server.Port}\r\n",
+            response);
+    }
+
+    [Fact]
+    public async Task Server_GeneratedMenuAdvertisesExtensionlessBinaryFileAsTypeNine()
+    {
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync();
+        server.Content.WriteBytes("payload", [0x41, 0x00, 0x42]);
+
+        string response = await server.RequestAsync(string.Empty);
+
+        Assert.Contains(
+            $"9payload\t/payload\t127.0.0.1\t{server.Port}\r\n",
+            response);
+    }
+
+    [Fact]
     public async Task Server_PublishesTextFileTelemetry()
     {
         RecordingMissionControlClient recording = new();
@@ -732,6 +901,34 @@ public sealed class HappyGopherIntegrationTests
         Assert.Equal(1, blocking.CanceledCount);
     }
 
+    private static async Task<(byte[] Response, string ResponseType)>
+        RequestWithResponseTypeAsync(
+            TestGopherServer server,
+            RecordingMissionControlClient recording,
+            string selector)
+    {
+        byte[] response = await server.RequestBytesAsync(selector);
+
+        using CancellationTokenSource timeout =
+            new(TimeSpan.FromSeconds(5));
+        await recording.WaitForPublishedEventCountAsync(
+            SelectorServedEventName,
+            1,
+            timeout.Token);
+
+        RecordedMissionControlEvent telemetry = Assert.Single(
+            recording.PublishedEvents,
+            publishedEvent =>
+                publishedEvent.EventType == SelectorServedEventName);
+        SelectorServedEvent payload =
+            Assert.IsType<SelectorServedEvent>(telemetry.Payload);
+
+        Assert.Equal(selector, payload.Selector);
+        Assert.True(payload.Succeeded);
+
+        return (response, payload.ResponseType);
+    }
+
     [Fact]
     public async Task Server_DoesNotLeakConnectionSlotAfterClientDisconnect()
     {
@@ -859,7 +1056,11 @@ public sealed class HappyGopherIntegrationTests
             }
         }
 
-        public async Task<string> RequestAsync(string selector)
+        public async Task<string> RequestAsync(string selector) =>
+            WireEncoding.GetString(
+                await RequestBytesAsync(selector));
+
+        public async Task<byte[]> RequestBytesAsync(string selector)
         {
             using TcpClient client = new();
             using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
@@ -883,7 +1084,7 @@ public sealed class HappyGopherIntegrationTests
                 response.Write(buffer, 0, read);
             }
 
-            return WireEncoding.GetString(response.ToArray());
+            return response.ToArray();
         }
 
         public async Task StopAsync(CancellationToken cancellationToken)
