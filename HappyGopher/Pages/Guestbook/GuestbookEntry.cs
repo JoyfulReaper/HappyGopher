@@ -8,4 +8,6 @@ namespace HappyGopher.Pages.Guestbook;
 
 public class GuestbookEntry
 {
+    public string Message { get; set; } = string.Empty;
+    public string? Name { get; set; }
 }

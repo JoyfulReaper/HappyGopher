@@ -6,6 +6,8 @@
 
 namespace HappyGopher.Pages.Guestbook;
 
-internal interface IGuestbookStore
+public interface IGuestbookStore
 {
+    Task<IReadOnlyList<GuestbookEntry>> GetEntriesAsync(int take, CancellationToken cancellationToken = default);
+    Task AddEntryAsync(GuestbookEntry entry, CancellationToken cancellationToken = default);
 }

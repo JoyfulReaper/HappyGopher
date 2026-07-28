@@ -12,18 +12,15 @@ public static class GuestbookServiceCollectionExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        bool enabled = configuration.GetValue<bool>(
-            $"{GuestbookOptions.SectionName}:Enabled");
+        bool enabled = configuration.GetValue<bool>($"{GuestbookOptions.SectionName}:Enabled");
 
         if (!enabled)
         {
             return services;
         }
 
-        services
-            .AddOptions<GuestbookOptions>()
-            .Bind(configuration.GetSection(
-                GuestbookOptions.SectionName))
+        services.AddOptions<GuestbookOptions>()
+            .Bind(configuration.GetSection(GuestbookOptions.SectionName))
             .ValidateOnStart();
 
         services.AddSingleton<IGuestbookStore, FileGuestbookStore>();

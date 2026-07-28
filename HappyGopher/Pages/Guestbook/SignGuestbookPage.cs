@@ -8,7 +8,7 @@ using HappyGopher.Gopher;
 
 namespace HappyGopher.Pages.Guestbook;
 
-internal class SignGuestbookPage : IGopherPage
+public class SignGuestbookPage : IGopherPage
 {
     public string Selector => throw new NotImplementedException();
 
