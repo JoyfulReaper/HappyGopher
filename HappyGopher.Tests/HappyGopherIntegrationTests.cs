@@ -347,6 +347,46 @@ public sealed class HappyGopherIntegrationTests
         Assert.Equal(
             "Dynamic page\r\n.\r\n",
             response);
+
+        GopherRequest request =
+            Assert.IsType<GopherRequest>(page.LastRequest);
+
+        Assert.Equal(
+            "/dynamic/test.txt",
+            request.Selector);
+
+        Assert.Null(request.Input);
+    }
+
+    [Fact]
+    public async Task Server_PassesType7InputToDynamicPage()
+    {
+        TestGopherPage page = new(
+            selector: "/guestbook/add",
+            response: "Saved\r\n.\r\n");
+
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(
+                pages: new IGopherPage[] { page });
+
+        string response =
+            await server.RequestAsync(
+                "/guestbook/add\tHello from Gopher");
+
+        Assert.Equal(
+            "Saved\r\n.\r\n",
+            response);
+
+        GopherRequest request =
+            Assert.IsType<GopherRequest>(page.LastRequest);
+
+        Assert.Equal(
+            "/guestbook/add",
+            request.Selector);
+
+        Assert.Equal(
+            "Hello from Gopher",
+            request.Input);
     }
 
     [Fact]
@@ -994,6 +1034,8 @@ public sealed class HappyGopherIntegrationTests
                 Port = port,
                 ContentRoot = content.Root,
                 MaxConcurrentConnections = maxConcurrentConnections,
+                MaxSelectorBytes = 4096,
+                MaxInputBytes = 1024,
                 RequestTimeoutSeconds = 5,
                 TelemetryIgnoredRemoteAddress =
                     telemetryIgnoredRemoteAddress

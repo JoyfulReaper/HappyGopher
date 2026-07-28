@@ -13,59 +13,113 @@ namespace HappyGopher.Tests;
 
 public sealed class GopherSelectorReaderTests
 {
-    private const int MaxSelectorBytes = 12;
+    private const int MaxSelectorBytes = 14;
+    private const int MaxInputBytes = 18;
     private static readonly Encoding WireEncoding = new UTF8Encoding(false);
 
     [Fact]
-    public async Task ReadAsync_ReturnsSelectorReceivedInOneWrite()
+    public async Task ReadAsync_ReturnsSelectorWithoutInput()
     {
-        string? selector = await ReadFromBytesAsync("/about.txt\r\n");
+        GopherRequest? request =
+            await ReadFromBytesAsync("/about\r\n");
 
-        Assert.Equal("/about.txt", selector);
+        Assert.NotNull(request);
+        Assert.Equal("/about", request.Selector);
+        Assert.Null(request.Input);
     }
 
     [Fact]
-    public async Task ReadAsync_ReturnsSelectorSplitAcrossMultipleWrites()
+    public async Task ReadAsync_ReturnsSelectorWithInput()
     {
-        string? selector = await ReadFromTcpWritesAsync("/down", "loads\r\n");
+        GopherRequest? request =
+            await ReadFromBytesAsync(
+                "/guestbook/add\tHello from Gopher\r\n");
 
-        Assert.Equal("/downloads", selector);
+        Assert.NotNull(request);
+        Assert.Equal("/guestbook/add", request.Selector);
+        Assert.Equal("Hello from Gopher", request.Input);
+    }
+
+    [Fact]
+    public async Task ReadAsync_ReturnsEmptyInputAfterTrailingTab()
+    {
+        GopherRequest? request =
+            await ReadFromBytesAsync("/guestbook/add\t\r\n");
+
+        Assert.NotNull(request);
+        Assert.Equal("/guestbook/add", request.Selector);
+        Assert.Equal(string.Empty, request.Input);
+    }
+
+    [Fact]
+    public async Task ReadAsync_PreservesAdditionalTabsInInput()
+    {
+        GopherRequest? request =
+            await ReadFromBytesAsync(
+                "/search\tone\ttwo\tthree\r\n");
+
+        Assert.NotNull(request);
+        Assert.Equal("/search", request.Selector);
+        Assert.Equal("one\ttwo\tthree", request.Input);
+    }
+
+    [Fact]
+    public async Task ReadAsync_ReturnsRequestSplitAcrossMultipleWrites()
+    {
+        GopherRequest? request =
+            await ReadFromTcpWritesAsync(
+                "/guestbook/",
+                "add\tHello ",
+                "from Gopher\r\n");
+
+        Assert.NotNull(request);
+        Assert.Equal("/guestbook/add", request.Selector);
+        Assert.Equal("Hello from Gopher", request.Input);
     }
 
     [Fact]
     public async Task ReadAsync_AcceptsLfOnlyRequest()
     {
-        string? selector = await ReadFromBytesAsync("/about.txt\n");
+        GopherRequest? request =
+            await ReadFromBytesAsync("/about.txt\n");
 
-        Assert.Equal("/about.txt", selector);
+        Assert.NotNull(request);
+        Assert.Equal("/about.txt", request.Selector);
+        Assert.Null(request.Input);
     }
 
     [Fact]
     public async Task ReadAsync_ReturnsEmptySelectorForEmptyLine()
     {
-        string? selector = await ReadFromBytesAsync("\r\n");
+        GopherRequest? request = await ReadFromBytesAsync("\r\n");
 
-        Assert.Equal(string.Empty, selector);
+        Assert.NotNull(request);
+        Assert.Equal(string.Empty, request.Selector);
+        Assert.Null(request.Input);
     }
 
     [Fact]
     public async Task ReadAsync_ReturnsNullWhenClientClosesWithoutSendingAnything()
     {
-        string? selector = await GopherSelectorReader.ReadAsync(
+        GopherRequest? request = await GopherSelectorReader.ReadAsync(
             new MemoryStream(),
             MaxSelectorBytes,
+            MaxInputBytes,
             requestTimeoutSeconds: 5,
             CancellationToken.None);
 
-        Assert.Null(selector);
+        Assert.Null(request);
     }
 
     [Fact]
-    public async Task ReadAsync_ReturnsSelectorWhenClientClosesWithoutNewline()
+    public async Task ReadAsync_ReturnsRequestWhenClientClosesWithoutNewline()
     {
-        string? selector = await ReadFromBytesAsync("/about.txt");
+        GopherRequest? request =
+            await ReadFromBytesAsync("/search\tgophers");
 
-        Assert.Equal("/about.txt", selector);
+        Assert.NotNull(request);
+        Assert.Equal("/search", request.Selector);
+        Assert.Equal("gophers", request.Input);
     }
 
     [Fact]
@@ -73,18 +127,11 @@ public sealed class GopherSelectorReaderTests
     {
         string selector = new('a', MaxSelectorBytes);
 
-        string? result = await ReadFromBytesAsync(selector + "\r\n");
+        GopherRequest? request =
+            await ReadFromBytesAsync(selector + "\r\n");
 
-        Assert.Equal(selector, result);
-    }
-
-    [Fact]
-    public async Task ReadAsync_RejectsSelectorOneByteLargerThanByteLimit()
-    {
-        string selector = new('a', MaxSelectorBytes + 1);
-
-        await Assert.ThrowsAsync<InvalidDataException>(
-            () => ReadFromBytesAsync(selector));
+        Assert.NotNull(request);
+        Assert.Equal(selector, request.Selector);
     }
 
     [Fact]
@@ -92,23 +139,85 @@ public sealed class GopherSelectorReaderTests
     {
         string selector = new('a', MaxSelectorBytes);
 
-        string? result = await ReadFromBytesAsync(selector + "\n");
+        GopherRequest? request =
+            await ReadFromBytesAsync(selector + "\n");
 
-        Assert.Equal(selector, result);
+        Assert.NotNull(request);
+        Assert.Equal(selector, request.Selector);
     }
 
     [Fact]
-    public async Task ReadAsync_AppliesLimitToUtf8BytesNotCharacterCount()
+    public async Task ReadAsync_RejectsSelectorOneByteLargerThanByteLimit()
     {
-        string selector = "éééééé";
+        string selector = new('a', MaxSelectorBytes + 1);
 
-        Assert.Equal(MaxSelectorBytes, WireEncoding.GetByteCount(selector));
+        InvalidDataException exception =
+            await Assert.ThrowsAsync<InvalidDataException>(
+                () => ReadFromBytesAsync(selector));
 
-        string? result = await ReadFromBytesAsync(selector + "\n");
+        Assert.Contains("Selector", exception.Message);
+    }
 
-        Assert.Equal(selector, result);
+    [Fact]
+    public async Task ReadAsync_AcceptsInputExactlyAtByteLimit()
+    {
+        string input = new('a', MaxInputBytes);
+
+        GopherRequest? request =
+            await ReadFromBytesAsync("/search\t" + input + "\r\n");
+
+        Assert.NotNull(request);
+        Assert.Equal(input, request.Input);
+    }
+
+    [Fact]
+    public async Task ReadAsync_RejectsInputOneByteLargerThanByteLimit()
+    {
+        string input = new('a', MaxInputBytes + 1);
+
+        InvalidDataException exception =
+            await Assert.ThrowsAsync<InvalidDataException>(
+                () => ReadFromBytesAsync("/search\t" + input));
+
+        Assert.Contains("Input", exception.Message);
+    }
+
+    [Fact]
+    public async Task ReadAsync_AppliesSelectorLimitToUtf8ByteCount()
+    {
+        string selector = "ééééééé";
+
+        Assert.Equal(
+            MaxSelectorBytes,
+            WireEncoding.GetByteCount(selector));
+
+        GopherRequest? request =
+            await ReadFromBytesAsync(selector + "\n");
+
+        Assert.NotNull(request);
+        Assert.Equal(selector, request.Selector);
+
         await Assert.ThrowsAsync<InvalidDataException>(
             () => ReadFromBytesAsync(selector + "a\n"));
+    }
+
+    [Fact]
+    public async Task ReadAsync_AppliesInputLimitToUtf8ByteCount()
+    {
+        string input = "ééééééééé";
+
+        Assert.Equal(
+            MaxInputBytes,
+            WireEncoding.GetByteCount(input));
+
+        GopherRequest? request =
+            await ReadFromBytesAsync("/search\t" + input + "\n");
+
+        Assert.NotNull(request);
+        Assert.Equal(input, request.Input);
+
+        await Assert.ThrowsAsync<InvalidDataException>(
+            () => ReadFromBytesAsync("/search\t" + input + "a\n"));
     }
 
     [Fact]
@@ -118,20 +227,23 @@ public sealed class GopherSelectorReaderTests
             () => ReadFromOpenTcpClientAsync());
     }
 
-    private static Task<string?> ReadFromBytesAsync(string value) =>
+    private static Task<GopherRequest?> ReadFromBytesAsync(
+        string value) =>
         GopherSelectorReader.ReadAsync(
             new MemoryStream(WireEncoding.GetBytes(value)),
             MaxSelectorBytes,
+            MaxInputBytes,
             requestTimeoutSeconds: 5,
             CancellationToken.None);
 
-    private static async Task<string?> ReadFromTcpWritesAsync(
+    private static async Task<GopherRequest?> ReadFromTcpWritesAsync(
         params string[] writes)
     {
         await using TcpPair pair = await TcpPair.CreateAsync();
-        Task<string?> readTask = GopherSelectorReader.ReadAsync(
+        Task<GopherRequest?> readTask = GopherSelectorReader.ReadAsync(
             pair.ServerStream,
             MaxSelectorBytes,
+            MaxInputBytes,
             requestTimeoutSeconds: 5,
             CancellationToken.None);
 
@@ -146,12 +258,14 @@ public sealed class GopherSelectorReaderTests
         return await readTask;
     }
 
-    private static async Task<string?> ReadFromOpenTcpClientAsync()
+    private static async Task<GopherRequest?>
+        ReadFromOpenTcpClientAsync()
     {
         await using TcpPair pair = await TcpPair.CreateAsync();
         return await GopherSelectorReader.ReadAsync(
             pair.ServerStream,
             MaxSelectorBytes,
+            MaxInputBytes,
             requestTimeoutSeconds: 1,
             CancellationToken.None);
     }
@@ -178,8 +292,11 @@ public sealed class GopherSelectorReaderTests
 
             int port = ((IPEndPoint)listener.LocalEndpoint).Port;
             TcpClient client = new();
-            Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
-            await client.ConnectAsync(IPAddress.Loopback, port);
+            Task<TcpClient> acceptTask =
+                listener.AcceptTcpClientAsync();
+            await client.ConnectAsync(
+                IPAddress.Loopback,
+                port);
             TcpClient server = await acceptTask;
             listener.Stop();
 

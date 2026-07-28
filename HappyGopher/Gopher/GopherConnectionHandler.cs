@@ -63,9 +63,10 @@ public sealed class GopherConnectionHandler(
 
         try
         {
-            string? request = await GopherSelectorReader.ReadAsync(
+            GopherRequest? request = await GopherSelectorReader.ReadAsync(
                 stream,
                 options.Value.MaxSelectorBytes,
+                options.Value.MaxInputBytes,
                 options.Value.RequestTimeoutSeconds,
                 cancellationToken);
 
@@ -74,8 +75,7 @@ public sealed class GopherConnectionHandler(
                 return null;
             }
 
-            GopherRequest gopherRequest = ParseRequest(request);
-            selector = gopherRequest.Selector;
+            selector = request.Selector;
 
             logger.LogDebug(
                 "Connection {ConnectionId} from {Remote} requested selector {Selector}",
@@ -90,7 +90,7 @@ public sealed class GopherConnectionHandler(
                     stream,
                     cancellationToken)
                 : await page.WriteAsync(
-                    gopherRequest,
+                    request,
                     stream,
                     cancellationToken);
             responseCompleted = true;
@@ -168,14 +168,4 @@ public sealed class GopherConnectionHandler(
             CorrelationId: correlationId);
     }
 
-    private static GopherRequest ParseRequest(string requestLine)
-    {
-        int tabIndex = requestLine.IndexOf('\t');
-        if (tabIndex < 0)
-        {
-            return new GopherRequest(Selector: requestLine, Input: null);
-        }
-
-        return new GopherRequest(Selector: requestLine[..tabIndex], Input: requestLine[(tabIndex + 1)..]);
-    }
 }

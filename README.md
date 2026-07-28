@@ -114,6 +114,7 @@ The default configuration resembles:
     "ContentRoot": "content",
     "MaxConcurrentConnections": 64,
     "MaxSelectorBytes": 4096,
+    "MaxInputBytes": 1024,
     "RequestTimeoutSeconds": 15
   }
 }
@@ -128,7 +129,8 @@ The default configuration resembles:
 | `PublicHost`               | `127.0.0.1` | Hostname or IP address advertised inside generated Gopher menus. |
 | `ContentRoot`              |   `content` | Directory containing files and `gophermap` menus.                |
 | `MaxConcurrentConnections` |        `64` | Maximum number of requests handled concurrently.                 |
-| `MaxSelectorBytes`         |      `4096` | Maximum permitted selector length.                               |
+| `MaxSelectorBytes`         |      `4096` | Maximum permitted selector length in UTF-8 bytes.                |
+| `MaxInputBytes`            |      `1024` | Maximum permitted type-7 input length in UTF-8 bytes.            |
 | `RequestTimeoutSeconds`    |        `15` | Time allowed for a client to send its request.                   |
 
 `ListenAddress` and `PublicHost` serve different purposes:
@@ -227,6 +229,17 @@ dynamic page therefore overrides a static resource at the same selector.
 Selectors without a matching page fall back to `GopherContentStore` and the
 normal static-content behavior.
 
+Type-7 requests provide input after the selector, separated by the first tab:
+
+```text
+selector<TAB>input
+```
+
+The selector and input are exposed to dynamic pages through `GopherRequest`.
+`MaxSelectorBytes` and `MaxInputBytes` limit their UTF-8 encoded lengths
+independently. Requests without a tab have a null `Input`; a trailing tab
+produces an empty input string.
+
 `GopherResponseWriter` provides reusable formatting for text responses, menu
 items, informational lines, and errors. It handles CRLF line endings, menu
 field sanitization, dot-stuffing, and response termination.
@@ -237,6 +250,7 @@ public sealed class ExamplePage : IGopherPage
     public string Selector => "/example";
 
     public async Task<GopherResponseKind> WriteAsync(
+        GopherRequest request,
         Stream output,
         CancellationToken cancellationToken)
     {

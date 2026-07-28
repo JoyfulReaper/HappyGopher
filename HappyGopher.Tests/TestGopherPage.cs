@@ -19,12 +19,15 @@ internal sealed class TestGopherPage(
         new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
     public string Selector { get; } = selector;
+    public GopherRequest? LastRequest { get; private set; }
 
     public async Task<GopherResponseKind> WriteAsync(
         GopherRequest request,
         Stream output,
         CancellationToken cancellationToken)
     {
+        LastRequest = request;
+
         byte[] bytes = WireEncoding.GetBytes(response);
 
         await output.WriteAsync(
