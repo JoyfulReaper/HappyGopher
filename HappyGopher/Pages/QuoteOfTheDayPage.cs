@@ -18,6 +18,7 @@ public sealed class QuoteOfTheDayPage(
     public string Selector => PageSelector;
 
     public async Task<GopherResponseKind> WriteAsync(
+        GopherRequest request,
         Stream output,
         CancellationToken cancellationToken)
     {

@@ -21,6 +21,7 @@ public sealed class ServerTimePage(TimeProvider timeProvider) : IGopherPage
         PageSelector;
 
     public async Task<GopherResponseKind> WriteAsync(
+        GopherRequest request,
         Stream output,
         CancellationToken cancellationToken)
     {

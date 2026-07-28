@@ -22,6 +22,7 @@ public interface IGopherPage
     /// Writes the Gopher response to the supplied output stream.
     /// </summary>
     Task<GopherResponseKind> WriteAsync(
+        GopherRequest request,
         Stream output,
         CancellationToken cancellationToken);
 }

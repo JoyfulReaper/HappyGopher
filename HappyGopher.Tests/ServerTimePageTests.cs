@@ -32,6 +32,9 @@ public sealed class ServerTimePageTests
 
         GopherResponseKind responseKind =
             await page.WriteAsync(
+                new GopherRequest(
+                    page.Selector,
+                    Input: null),
                 output,
                 CancellationToken.None);
 

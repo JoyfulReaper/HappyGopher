@@ -21,6 +21,7 @@ internal sealed class TestGopherPage(
     public string Selector { get; } = selector;
 
     public async Task<GopherResponseKind> WriteAsync(
+        GopherRequest request,
         Stream output,
         CancellationToken cancellationToken)
     {
