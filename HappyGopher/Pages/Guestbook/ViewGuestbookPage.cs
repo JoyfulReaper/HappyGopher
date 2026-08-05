@@ -29,7 +29,7 @@ public sealed class ViewGuestbookPage : IGopherPage
         _gopherOptions = gopherOptions.Value;
     }
 
-    public string Selector => "guestbook";
+    public string Selector => "/guestbook";
 
     public async Task<GopherResponseKind> WriteAsync(
         GopherRequest request,
@@ -91,14 +91,26 @@ public sealed class ViewGuestbookPage : IGopherPage
 
         if (_guestbookOptions.Enabled)
         {
+            await writer.WriteInfoAsync(
+                "If you would like to use a nick name, please use the following format: Name | Message",
+                cancellationToken);
+
             await writer.WriteMenuItemAsync(
                 type: '7',
                 display: "Sign the guestbook",
-                selector: "guestbook/sign",
+                selector: "/guestbook/sign",
                 host: _gopherOptions.PublicHost,
                 port: _gopherOptions.Port,
                 cancellationToken);
         }
+
+        await writer.WriteMenuItemAsync(
+            type: '1',
+            display: "Go back to main menu",
+            selector: "",
+            host: _gopherOptions.PublicHost,
+            port: _gopherOptions.Port,
+            cancellationToken);
 
         await writer.CompleteAsync(cancellationToken);
 

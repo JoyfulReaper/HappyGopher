@@ -78,22 +78,7 @@ if (builder.Configuration.GetValue<bool>($"{HappyQotdOptions.SectionName}:Enable
 }
 
 // Guestbook integration
-builder.Services
-    .AddOptions<GuestbookOptions>()
-    .Bind(builder.Configuration.GetSection(GuestbookOptions.SectionName))
-    .Validate(options => options.MaxEntriesDisplayed > 0,
-        "Guestbook:MaxEntriesDisplayed must be positive.")
-    .Validate(options => !string.IsNullOrWhiteSpace(options.DataPath),
-        "Guestbook:DataPath must not be empty.")
-    .ValidateOnStart();
-
-var guestbookEnabled = builder.Configuration.GetValue<bool>($"{GuestbookOptions.SectionName}:Enabled");
-if (guestbookEnabled)
-{
-    builder.Services.AddSingleton<IGuestbookStore, FileGuestbookStore>();
-    builder.Services.AddScoped<IGopherPage, ViewGuestbookPage>();
-    builder.Services.AddScoped<IGopherPage, SignGuestbookPage>();
-}
+GuestbookServiceCollectionExtensions.AddGuestbookPages(builder.Services, builder.Configuration);
 
 var host = builder.Build();
 host.Run();

@@ -18,6 +18,10 @@ public sealed class FileGuestbookStore : IGuestbookStore
     private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
     private readonly string _fullPath;
     private readonly ILogger<FileGuestbookStore> _logger;
+    private static readonly TimeSpan DuplicateWindow = TimeSpan.FromSeconds(5); // TODO: Make configurable
+
+    private string? _lastSubmissionKey;
+    private DateTimeOffset _lastSubmissionAt;
 
     private readonly FileStreamOptions _fsAppendOptions = new FileStreamOptions
     {
@@ -42,34 +46,64 @@ public sealed class FileGuestbookStore : IGuestbookStore
         _logger = logger;
     }
 
-    public async Task AddEntryAsync(GuestbookEntry entry, CancellationToken cancellationToken = default)
+    public async Task<bool> AddEntryAsync(
+        GuestbookEntry entry,
+        CancellationToken cancellationToken = default)
     {
         ThrowIfDisabled();
         ArgumentNullException.ThrowIfNull(entry);
 
-        string? directory = Path.GetDirectoryName(_fullPath);
-        if (!string.IsNullOrWhiteSpace(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
+        string submissionKey = CreateSubmissionKey(entry);
 
-        var json = JsonSerializer.Serialize(entry);
         await _semaphore.WaitAsync(cancellationToken);
 
         try
         {
-            await using var fs = File.Open(_fullPath, _fsAppendOptions);
-            using var writer = new StreamWriter(fs);
+            DateTimeOffset now = DateTimeOffset.UtcNow;
 
-            await writer.WriteLineAsync(json.AsMemory(), cancellationToken);
+            // NOTE: Some Gopher clients, including Gophie, may replay type-7 search requests and create duplicate guestbook entries.
+            if (string.Equals(submissionKey, _lastSubmissionKey, StringComparison.Ordinal) &&
+                now - _lastSubmissionAt <= DuplicateWindow)
+            {
+                _logger.LogInformation("Suppressed replayed guestbook submission.");
+                return false;
+            }
+
+            string? directory = Path.GetDirectoryName(_fullPath);
+
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            string json = JsonSerializer.Serialize(entry);
+
+            await using var fs = File.Open(_fullPath, _fsAppendOptions);
+            await using var writer = new StreamWriter(fs);
+
+            await writer.WriteLineAsync(
+                json.AsMemory(),
+                cancellationToken);
+
             await writer.FlushAsync(cancellationToken);
 
-            // TODO Create an integration event
+            _lastSubmissionKey = submissionKey;
+            _lastSubmissionAt = now;
+
+            return true;
         }
         finally
         {
             _semaphore.Release();
         }
+    }
+
+    private static string CreateSubmissionKey(GuestbookEntry entry)
+    {
+        string name = entry.Name?.Trim() ?? string.Empty;
+        string message = entry.Message.Trim();
+
+        return $"{name.ToUpperInvariant()}\n{message}";
     }
 
     public async Task<IReadOnlyList<GuestbookEntry>> GetEntriesAsync(int take, CancellationToken cancellationToken = default)

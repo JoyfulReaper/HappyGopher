@@ -34,7 +34,7 @@ public sealed class SignGuestbookPage : IGopherPage
         _gopherOptions = gopherOptions.Value;
     }
 
-    public string Selector => "guestbook/sign";
+    public string Selector => "/guestbook/sign";
 
     public async Task<GopherResponseKind> WriteAsync(
         GopherRequest request,
@@ -93,7 +93,7 @@ public sealed class SignGuestbookPage : IGopherPage
             Message = parseResult.Message!
         };
 
-        await _guestbookStore.AddEntryAsync(entry, cancellationToken);
+        bool added = await _guestbookStore.AddEntryAsync(entry, cancellationToken);
 
         var displayName = string.IsNullOrWhiteSpace(entry.Name)
             ? "Anonymous"
@@ -118,7 +118,7 @@ public sealed class SignGuestbookPage : IGopherPage
         await writer.WriteMenuItemAsync(
             type: '1',
             display: "View the guestbook",
-            selector: "guestbook",
+            selector: "/guestbook",
             host: _gopherOptions.PublicHost,
             port: _gopherOptions.Port,
             cancellationToken);
@@ -175,7 +175,7 @@ public sealed class SignGuestbookPage : IGopherPage
         await writer.WriteMenuItemAsync(
             type: '1',
             display: "Return to the guestbook",
-            selector: "guestbook",
+            selector: "/guestbook",
             host: _gopherOptions.PublicHost,
             port: _gopherOptions.Port,
             cancellationToken);

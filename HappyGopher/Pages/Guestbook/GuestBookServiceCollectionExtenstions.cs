@@ -12,20 +12,22 @@ public static class GuestbookServiceCollectionExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        bool enabled = configuration.GetValue<bool>($"{GuestbookOptions.SectionName}:Enabled");
-
-        if (!enabled)
-        {
-            return services;
-        }
-
-        services.AddOptions<GuestbookOptions>()
+        services
+            .AddOptions<GuestbookOptions>()
             .Bind(configuration.GetSection(GuestbookOptions.SectionName))
+            .Validate(options => options.MaxEntriesDisplayed > 0,
+                "Guestbook:MaxEntriesDisplayed must be positive.")
+            .Validate(options => !string.IsNullOrWhiteSpace(options.DataPath),
+                "Guestbook:DataPath must not be empty.")
             .ValidateOnStart();
 
-        services.AddSingleton<IGuestbookStore, FileGuestbookStore>();
-        services.AddScoped<IGopherPage, ViewGuestbookPage>();
-        services.AddScoped<IGopherPage, SignGuestbookPage>();
+        var guestbookEnabled = configuration.GetValue<bool>($"{GuestbookOptions.SectionName}:Enabled");
+        if (guestbookEnabled)
+        {
+            services.AddSingleton<IGuestbookStore, FileGuestbookStore>();
+            services.AddScoped<IGopherPage, ViewGuestbookPage>();
+            services.AddScoped<IGopherPage, SignGuestbookPage>();
+        }
 
         return services;
     }
