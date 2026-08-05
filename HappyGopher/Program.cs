@@ -7,12 +7,15 @@
 using HappyGopher.Gopher;
 using HappyGopher.Integrations.HappyQotd;
 using HappyGopher.Pages;
+using HappyGopher.Pages.Guestbook;
 using HappyGopher.Telemetry;
 using JoyfulReaperLib.MissionControl;
 using JoyfulReaperLib.TcpServer;
 using Microsoft.Extensions.Options;
 
 var builder = Host.CreateApplicationBuilder(args);
+
+// TODO This file needs to be refactored into a proper Startup class
 
 // Windows Service Support
 builder.Services.AddWindowsService(options =>
@@ -74,7 +77,23 @@ if (builder.Configuration.GetValue<bool>($"{HappyQotdOptions.SectionName}:Enable
     builder.Services.AddScoped<IGopherPage, RandomQuotePage>();
 }
 
+// Guestbook integration
+builder.Services
+    .AddOptions<GuestbookOptions>()
+    .Bind(builder.Configuration.GetSection(GuestbookOptions.SectionName))
+    .Validate(options => options.MaxEntriesDisplayed > 0,
+        "Guestbook:MaxEntriesDisplayed must be positive.")
+    .Validate(options => !string.IsNullOrWhiteSpace(options.DataPath),
+        "Guestbook:DataPath must not be empty.")
+    .ValidateOnStart();
 
+var guestbookEnabled = builder.Configuration.GetValue<bool>($"{GuestbookOptions.SectionName}:Enabled");
+if (guestbookEnabled)
+{
+    builder.Services.AddSingleton<IGuestbookStore, FileGuestbookStore>();
+    builder.Services.AddScoped<IGopherPage, ViewGuestbookPage>();
+    builder.Services.AddScoped<IGopherPage, SignGuestbookPage>();
+}
 
 var host = builder.Build();
 host.Run();

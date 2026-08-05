@@ -7,12 +7,14 @@
 using HappyGopher.Events;
 using HappyGopher.Gopher;
 using JoyfulReaperLib.MissionControl;
+using Microsoft.Extensions.Options;
 using System.Net;
 
 namespace HappyGopher.Telemetry;
 
 public sealed class TelemetryService(
     IMissionControlClient missionControlClient,
+    IOptions<MissionControlClientOptions> missionControlOptions,
     ILogger<TelemetryService> logger)
 {
     private static readonly TimeSpan TelemetryPublishTimeout = TimeSpan.FromSeconds(2); // TODO Make configurable
@@ -22,6 +24,12 @@ public sealed class TelemetryService(
         GopherSessionResult result,
         CancellationToken cancellationToken)
     {
+
+        if (!missionControlOptions.Value.Enabled)
+        {
+            return;
+        }
+
         using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TelemetryPublishTimeout);
 
