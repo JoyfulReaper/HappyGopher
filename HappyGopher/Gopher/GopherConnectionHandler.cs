@@ -96,6 +96,14 @@ public sealed class GopherConnectionHandler(
             responseCompleted = true;
         }
         catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
+            logger.LogDebug(
+                "Connection {ConnectionId} from {Remote} was canceled during shutdown.",
+                connectionId,
+                remote);
+        }
+        catch (OperationCanceledException)
         {
             logger.LogWarning(
                 "Connection {ConnectionId} from {Remote} timed out.",
