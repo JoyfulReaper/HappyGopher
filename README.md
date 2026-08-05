@@ -335,7 +335,8 @@ The core example uses selector `/server-time`, returns a text response
 containing the current UTC server time, and is implemented by `ServerTimePage`
 in `HappyGopher/Pages/ServerTimePage.cs`. The HappyQOTD and guestbook pages are
 additional examples of compiled dynamic pages. The sample root `gophermap`
-links to the server-time and guestbook selectors.
+links to the server-time page but does not advertise optional pages that are
+disabled in the default configuration.
 
 Runtime DLL scanning and plugin-folder loading are planned but are not
 implemented. HappyGopher does not currently discover page assemblies
@@ -352,10 +353,33 @@ Message
 Name | Message
 ```
 
-> **Note:** The checked-in root `gophermap` advertises the guestbook even
-> though `Guestbook:Enabled` defaults to `false`. Its relative
-> `guestbook/sign` selector resolves to `/guestbook/sign`. Enable the guestbook
-> or remove those menu entries when deploying the default configuration.
+Enabling the guestbook through an environment variable:
+
+```text
+Guestbook__Enabled=true
+```
+
+or JSON configuration:
+
+```json
+"Guestbook": {
+  "Enabled": true
+}
+```
+
+does not automatically modify static `gophermap` files. Add these entries to
+the deployed root `gophermap` when enabling the feature:
+
+```text
+1Guestbook	/guestbook
+7Sign Guestbook	/guestbook/sign
+```
+
+`/guestbook` displays recent entries. `/guestbook/sign` is a type-7 input item
+used to submit an entry. Optional dynamic pages are registered from
+configuration, while static menus remain administrator-managed. A fresh clone
+requires no menu changes when the guestbook remains disabled because the
+default root menu does not advertise it.
 
 An omitted or blank name is displayed as `Anonymous`. Names are limited to 40
 characters and messages to 500 characters. The store appends entries as
