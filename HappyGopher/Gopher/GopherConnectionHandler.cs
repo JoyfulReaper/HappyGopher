@@ -58,8 +58,8 @@ public sealed class GopherConnectionHandler(
         string? selector = null;
         GopherResponseKind? responseKind = null;
         bool responseCompleted = false;
-
-        bool isIgnoredTelemetrySource = TelemetryService.IsIgnoredTelemetrySource(remote, options.Value.TelemetryIgnoredRemoteAddress);
+        TelemetrySuppressionDecision suppressionDecision =
+            TelemetrySuppressionDecision.NotSuppressed;
 
         try
         {
@@ -76,6 +76,12 @@ public sealed class GopherConnectionHandler(
             }
 
             selector = request.Selector;
+
+            suppressionDecision = TelemetrySuppression.Evaluate(
+                remote,
+                selector,
+                options.Value.TelemetryIgnoredRemoteAddress,
+                options.Value.TelemetryIgnoredSelectors);
 
             logger.LogDebug(
                 "Connection {ConnectionId} from {Remote} requested selector {Selector}",
@@ -152,11 +158,13 @@ public sealed class GopherConnectionHandler(
             return null;
         }
 
-        if (isIgnoredTelemetrySource)
+        if (suppressionDecision.IsSuppressed)
         {
             logger.LogDebug(
-                "Skipping telemetry for monitoring request from {Remote}.",
-                remote);
+                "Skipping telemetry for remote endpoint {Remote}, selector {Selector}; suppression reason: {SuppressionReason}.",
+                TelemetryService.FormatRemoteEndPoint(remote),
+                selector,
+                suppressionDecision.LogReason);
 
             return null;
         }

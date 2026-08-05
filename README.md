@@ -48,7 +48,7 @@ real-world example of HappyGopher hosting Gopher content.
 * Resolves dynamic pages before static content at the same selector
 * Provides `GopherResponseWriter` for reusable protocol-safe response
   formatting
-* Includes a `/server-time` dynamic page that returns the current UTC time
+* Includes `/server-time` and operational `/healthz` dynamic pages
 * Optionally provides `/qotd` and `/random-quote` through HappyQOTD
 * Optionally provides a file-backed guestbook with named or anonymous entries
   and replay suppression for clients that resend type-7 requests
@@ -162,7 +162,8 @@ The default configuration resembles:
 | `MaxSelectorBytes`              |      `4096` | Maximum permitted selector length in UTF-8 bytes.                |
 | `MaxInputBytes`                 |      `1024` | Maximum permitted type-7 input length in UTF-8 bytes.            |
 | `RequestTimeoutSeconds`         |        `15` | Time allowed for a client to send its request.                   |
-| `TelemetryIgnoredRemoteAddress` |   not set   | Remote IP address excluded from selector telemetry.              |
+| `TelemetryIgnoredRemoteAddress` |   not set   | Exact remote IP used to suppress selector telemetry.             |
+| `TelemetryIgnoredSelectors`     |      empty  | Exact, case-sensitive selectors used to suppress telemetry.      |
 
 #### Mission Control
 
@@ -356,10 +357,12 @@ builder.Services.AddScoped<IGopherPage, ExamplePage>();
 
 The core example uses selector `/server-time`, returns a text response
 containing the current UTC server time, and is implemented by `ServerTimePage`
-in `HappyGopher/Pages/ServerTimePage.cs`. The HappyQOTD and guestbook pages are
+in `HappyGopher/Pages/ServerTimePage.cs`. The always-registered `/healthz` page
+returns the terminated text response `OK`; it is an operational selector and is
+not added to the default root `gophermap`. The HappyQOTD and guestbook pages are
 additional examples of compiled dynamic pages. The sample root `gophermap`
-links to the server-time page but does not advertise optional pages that are
-disabled in the default configuration.
+links to the server-time page but does not advertise operational or optional
+pages.
 
 Runtime DLL scanning and plugin-folder loading are planned but are not
 implemented. HappyGopher does not currently discover page assemblies
@@ -442,9 +445,28 @@ when Mission Control is disabled.
 
 Each selector-served event reports the selector, response type, remote
 endpoint, duration, and success state. Its event metadata also carries the
-request timestamp and correlation ID. `Gopher:TelemetryIgnoredRemoteAddress`
-may be set to one remote IP address whose requests should not produce selector
-telemetry, which is useful for a local health check or monitor.
+request timestamp and correlation ID. Telemetry suppression follows these
+rules:
+
+* With only `Gopher:TelemetryIgnoredRemoteAddress` configured, an exact
+  normalized IP-address match suppresses telemetry.
+* With only `Gopher:TelemetryIgnoredSelectors` configured, an exact selector
+  match suppresses telemetry regardless of source.
+* With both configured, the remote address and selector must both match.
+
+Selector matching uses ordinal, case-sensitive comparison. Blank configured
+entries are ignored; selectors are not URL-decoded, and prefixes do not match.
+For example, `/healthz` does not match `/Healthz` or `/healthz/details`.
+Environment variables bind array entries by index, such as
+`Gopher__TelemetryIgnoredSelectors__0=/healthz`.
+
+A monitor that only opens and closes a TCP connection never sends a selector,
+so it produces no selector-served telemetry and needs no ignore rule. To
+exercise the built-in Gopher health page, the monitor must send:
+
+```text
+/healthz\r\n
+```
 
 ## Testing the Server
 
@@ -572,6 +594,31 @@ IPv4 address, so a native container IPv6 address is not always required for
 ordinary published-port forwarding. That proxy behavior is not universal,
 especially when the userland proxy is disabled.
 
+Docker userland proxying can also make many external clients appear to
+HappyGopher as the same bridge gateway or proxy address. Using a Docker gateway
+such as `172.21.0.1` as the sole telemetry-ignore identity can therefore hide
+legitimate traffic, including IPv6 clients proxied into an IPv4-only bridge.
+Prefer the dedicated `/healthz` selector. When a monitor is known to arrive
+from the gateway address, use the combined rule:
+
+```yaml
+environment:
+  Gopher__ListenAddress: "::"
+  Gopher__DualMode: "true"
+  Gopher__TelemetryIgnoredRemoteAddress: "172.21.0.1"
+  Gopher__TelemetryIgnoredSelectors__0: "/healthz"
+```
+
+With both settings configured, only `/healthz` requests observed from
+`172.21.0.1` are ignored. Normal selectors seen from that proxy address still
+publish telemetry. To exclude the health selector from every source, use the
+simpler configuration:
+
+```yaml
+environment:
+  Gopher__TelemetryIgnoredSelectors__0: "/healthz"
+```
+
 Use an IPv6-enabled Compose network when the container needs native IPv6
 addressing, direct or routed IPv6 connectivity, outbound native IPv6, or
 behavior that does not rely on Docker's proxying. Explicitly disabling IPv6 in
@@ -694,6 +741,7 @@ HappyGopher.slnx
 │   ├── Pages/
 │   │   ├── IGopherPage.cs
 │   │   ├── GopherPageResolver.cs
+│   │   ├── HealthPage.cs
 │   │   ├── ServerTimePage.cs
 │   │   ├── QuoteOfTheDayPage.cs
 │   │   ├── RandomQuotePage.cs
@@ -702,7 +750,8 @@ HappyGopher.slnx
 │   │       ├── SignGuestbookPage.cs
 │   │       └── ViewGuestbookPage.cs
 │   ├── Telemetry/
-│   │   └── TelemetryService.cs
+│   │   ├── TelemetryService.cs
+│   │   └── TelemetrySuppressionDecision.cs
 │   ├── Program.cs
 │   ├── HappyGopher.csproj
 │   ├── appsettings.json
@@ -710,6 +759,7 @@ HappyGopher.slnx
 ├── HappyGopher.Tests/
 │   ├── GopherPageResolverTests.cs
 │   ├── GopherResponseWriterTests.cs
+│   ├── HealthPageTests.cs
 │   └── ServerTimePageTests.cs
 └── LICENSE
 ```

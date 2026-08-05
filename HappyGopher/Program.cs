@@ -48,6 +48,7 @@ builder.Services.AddHostedService<GopherLifecycleService>();
 
 // Currently all pages must be registered here.
 builder.Services.AddScoped<IGopherPage, ServerTimePage>();
+builder.Services.AddScoped<IGopherPage, HealthPage>();
 
 // QOTD integration
 builder.Services.AddHappyQotd(builder.Configuration);

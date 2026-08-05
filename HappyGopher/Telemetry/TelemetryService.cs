@@ -94,29 +94,10 @@ public sealed class TelemetryService(
         };
     }
 
-    internal static bool IsIgnoredTelemetrySource(
-        EndPoint? remote,
-        string? ignoredRemoteAddress)
-    {
-        if (remote is not IPEndPoint remoteEndPoint ||
-            !IPAddress.TryParse(ignoredRemoteAddress, out IPAddress? ignoredAddress))
-        {
-            return false;
-        }
-
-        return NormalizeAddress(remoteEndPoint.Address).Equals(
-            NormalizeAddress(ignoredAddress));
-    }
-
     internal static string FormatRemoteEndPoint(EndPoint? remote) =>
         remote is IPEndPoint remoteEndPoint
             ? new IPEndPoint(
-                NormalizeAddress(remoteEndPoint.Address),
+                TelemetrySuppression.NormalizeAddress(remoteEndPoint.Address),
                 remoteEndPoint.Port).ToString()
             : remote?.ToString() ?? "unknown";
-
-    private static IPAddress NormalizeAddress(IPAddress address) =>
-        address.IsIPv4MappedToIPv6
-            ? address.MapToIPv4()
-            : address;
 }

@@ -291,6 +291,43 @@ public sealed class HappyGopherIntegrationTests
     }
 
     [Fact]
+    public async Task Server_DualModePublishesTelemetryForIPv6AfterClose()
+    {
+        await RequireDualStackLoopbackCapabilityAsync();
+
+        RecordingMissionControlClient recording = new();
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(
+                missionControlClient: recording,
+                listenAddress: "::",
+                dualMode: true);
+        server.Content.WriteText("about.txt", "About over IPv6");
+
+        string response = await server.RequestAsync(
+            "/about.txt",
+            IPAddress.IPv6Loopback);
+
+        Assert.Equal("About over IPv6\r\n.\r\n", response);
+
+        using CancellationTokenSource timeout =
+            new(TimeSpan.FromSeconds(5));
+        await recording.WaitForPublishedEventCountAsync(
+            SelectorServedEventName,
+            1,
+            timeout.Token);
+
+        RecordedMissionControlEvent telemetry = Assert.Single(
+            recording.PublishedEvents,
+            publishedEvent =>
+                publishedEvent.EventType == SelectorServedEventName);
+        SelectorServedEvent payload =
+            Assert.IsType<SelectorServedEvent>(telemetry.Payload);
+
+        Assert.Equal("/about.txt", payload.Selector);
+        Assert.Matches(@"^\[::1\]:\d+$", payload.Remote);
+    }
+
+    [Fact]
     public async Task Server_PublishesDynamicPageResponseKindTelemetry()
     {
         RecordingMissionControlClient recording = new();
@@ -458,18 +495,48 @@ public sealed class HappyGopherIntegrationTests
             "iRoot\tfake\t(NULL)\t0\r\n.\r\n",
             response);
 
-        using CancellationTokenSource timeout =
-            new(TimeSpan.FromSeconds(5));
-
-        await Task.Delay(
-            TimeSpan.FromMilliseconds(250),
-            timeout.Token);
-
         Assert.DoesNotContain(
             recording.PublishedEvents,
             publishedEvent =>
                 publishedEvent.EventType ==
                 SelectorServedEventName);
+    }
+
+    [Fact]
+    public async Task Server_CombinedIgnoreRuleSuppressesOnlyMatchingSelectorAndAddress()
+    {
+        RecordingMissionControlClient recording = new();
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(
+                missionControlClient: recording,
+                telemetryIgnoredRemoteAddress:
+                    IPAddress.Loopback.ToString(),
+                telemetryIgnoredSelectors: ["/healthz"]);
+        server.Content.WriteText("about.txt", "About");
+
+        string normalResponse =
+            await server.RequestAsync("/about.txt");
+
+        Assert.Equal("About\r\n.\r\n", normalResponse);
+
+        using CancellationTokenSource timeout =
+            new(TimeSpan.FromSeconds(5));
+        await recording.WaitForPublishedEventCountAsync(
+            SelectorServedEventName,
+            1,
+            timeout.Token);
+
+        string healthResponse = await server.RequestAsync("/healthz");
+
+        Assert.Equal("OK\r\n.\r\n", healthResponse);
+
+        RecordedMissionControlEvent telemetry = Assert.Single(
+            recording.PublishedEvents,
+            publishedEvent =>
+                publishedEvent.EventType == SelectorServedEventName);
+        SelectorServedEvent payload =
+            Assert.IsType<SelectorServedEvent>(telemetry.Payload);
+        Assert.Equal("/about.txt", payload.Selector);
     }
 
     [Fact]
@@ -1156,6 +1223,7 @@ public sealed class HappyGopherIntegrationTests
         public static async Task<TestGopherServer> StartAsync(
             IMissionControlClient? missionControlClient = null,
             string? telemetryIgnoredRemoteAddress = null,
+            string[]? telemetryIgnoredSelectors = null,
             int maxConcurrentConnections = 64,
             IEnumerable<IGopherPage>? pages = null,
             IGuestbookStore? guestbookStore = null,
@@ -1185,7 +1253,9 @@ public sealed class HappyGopherIntegrationTests
                 MaxInputBytes = 1024,
                 RequestTimeoutSeconds = 5,
                 TelemetryIgnoredRemoteAddress =
-                    telemetryIgnoredRemoteAddress
+                    telemetryIgnoredRemoteAddress,
+                TelemetryIgnoredSelectors =
+                    telemetryIgnoredSelectors ?? []
             };
             IGopherPage[] registeredPages = pages?.ToArray() ?? [];
 
@@ -1209,6 +1279,8 @@ public sealed class HappyGopherIntegrationTests
                         {
                             services.AddSingleton<IGopherPage>(page);
                         }
+
+                        services.AddScoped<IGopherPage, HealthPage>();
 
                         if (guestbookStore is not null &&
                             guestbookOptions is not null)
