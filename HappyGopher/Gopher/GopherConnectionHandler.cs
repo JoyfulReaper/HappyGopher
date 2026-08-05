@@ -169,7 +169,7 @@ public sealed class GopherConnectionHandler(
         return new GopherSessionResult(
             Selector: selector,
             ResponseKind: responseKind.Value,
-            Remote: remote?.ToString() ?? "unknown",
+            Remote: TelemetryService.FormatRemoteEndPoint(remote),
             DurationMilliseconds: stopwatch.ElapsedMilliseconds,
             Succeeded: succeeded,
             OccurredAt: occurredAt,

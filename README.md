@@ -95,7 +95,9 @@ The default checked-in configuration listens on loopback at port `70`.
 127.0.0.1:70
 ```
 
-With this default, HappyGopher accepts local connections only. To serve other machines, change `ListenAddress` to an address such as `0.0.0.0` and review your firewall rules.
+With this default, HappyGopher accepts IPv4 local connections only. To serve
+other machines or enable IPv6, configure `ListenAddress` and `DualMode` for the
+desired address families and review your firewall rules.
 
 ## Configuration
 
@@ -117,6 +119,7 @@ The default configuration resembles:
   },
   "Gopher": {
     "ListenAddress": "127.0.0.1",
+    "DualMode": false,
     "Port": 70,
     "PublicHost": "127.0.0.1",
     "ContentRoot": "content",
@@ -151,6 +154,7 @@ The default configuration resembles:
 | Setting                         |     Default | Description                                                      |
 | ------------------------------- | ----------: | ---------------------------------------------------------------- |
 | `ListenAddress`                 | `127.0.0.1` | Local IP address on which the TCP server listens.                |
+| `DualMode`                      |      `false` | Allows one IPv6 wildcard listener to accept IPv6 and IPv4.       |
 | `Port`                          |        `70` | TCP port used by the server.                                     |
 | `PublicHost`                    | `127.0.0.1` | Hostname or IP address advertised inside generated Gopher menus. |
 | `ContentRoot`                   |   `content` | Directory containing files and `gophermap` menus.                |
@@ -187,14 +191,33 @@ The default configuration resembles:
 
 `ListenAddress` and `PublicHost` serve different purposes:
 
-* `ListenAddress` controls where HappyGopher accepts connections. The checked-in default is loopback-only, not all interfaces.
+* `ListenAddress` controls where HappyGopher accepts connections. The checked-in default is IPv4 loopback-only, not all interfaces.
+* `DualMode` controls whether an IPv6 wildcard listener also accepts IPv4 clients. HappyGopher still creates only one listener.
 * `PublicHost` is the address placed into menu entries returned to clients.
+
+Use these combinations for common listener configurations:
+
+| Purpose             | `ListenAddress` | `DualMode` |
+| ------------------- | --------------- | ---------- |
+| IPv4 loopback       | `127.0.0.1`     | `false`    |
+| IPv4 all interfaces | `0.0.0.0`       | `false`    |
+| IPv6 loopback       | `::1`           | `false`    |
+| IPv6 all interfaces | `::`            | `false`    |
+| IPv4 and IPv6       | `::`            | `true`     |
+
+Enabling `DualMode` with an IPv4 address or a non-wildcard IPv6 address is
+invalid and causes startup to fail.
 
 For a public server, set `PublicHost` to the hostname clients actually use:
 
 ```json
 "PublicHost": "gopher.example.com"
 ```
+
+For dual-stack public service, use a DNS hostname with both `A` and `AAAA`
+records for `PublicHost`. Avoid a raw IPv6 literal because generated Gopher menu
+fields do not provide the same unambiguous bracketed host-and-port formatting as
+a network endpoint.
 
 For a public server, bind to the interface that should accept client connections:
 
@@ -510,7 +533,7 @@ docker build -t happygopher .
 The image exposes TCP port `70` and runs the application as the non-root
 `$APP_UID` user supplied by the .NET runtime image. The configured
 `Gopher:ListenAddress` must accept container traffic when the server should be
-reachable outside the container; `0.0.0.0` is the usual container setting.
+reachable outside the container.
 
 If the guestbook is enabled, mount `Guestbook:DataPath` on writable persistent
 storage. A minimal Compose configuration is:
@@ -524,7 +547,8 @@ services:
     volumes:
       - ./data:/app/data
     environment:
-      Gopher__ListenAddress: "0.0.0.0"
+      Gopher__ListenAddress: "::"
+      Gopher__DualMode: "true"
       Gopher__PublicHost: "gopher.example.com"
       Guestbook__Enabled: "true"
 ```
@@ -532,6 +556,18 @@ services:
 Double underscores are the standard .NET environment-variable separator for
 nested configuration keys. The mounted host directory must be writable by the
 container user.
+
+The `70:70` mapping normally publishes container port 70 on the host's IPv4 and
+IPv6 addresses. HappyGopher must bind to `::` with dual mode enabled so Docker
+can reach the application through either address family. A native IPv6 address
+inside the container is not required for ordinary published-port forwarding.
+
+Compose network `enable_ipv6: true` is only required when the container itself
+needs native IPv6 addressing, direct IPv6 routing, or outbound IPv6
+connectivity. Explicitly disabling IPv6 in the container is incompatible with
+binding HappyGopher to `::`. Docker port publishing also does not replace host
+security policy: Windows and Linux host firewalls must separately allow inbound
+TCP port 70.
 
 ## Installing as a Windows Service
 

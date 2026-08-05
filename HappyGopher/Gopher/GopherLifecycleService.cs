@@ -8,6 +8,7 @@ using HappyGopher.Events;
 using JoyfulReaperLib.JRNet;
 using JoyfulReaperLib.MissionControl;
 using Microsoft.Extensions.Options;
+using System.Net;
 
 namespace HappyGopher.Gopher;
 
@@ -30,11 +31,14 @@ public sealed class GopherLifecycleService(
         CancellationToken cancellationToken)
     {
         var listenAddress = IPAddressUtils.ParseListenAddress(options.Value.ListenAddress);
+        string listenEndPoint = new IPEndPoint(
+            listenAddress,
+            options.Value.Port).ToString();
 
         logger.LogInformation(
-            "HappyGopher Server Listening on {Address}:{Port}; content root is {ContentRoot}",
-            listenAddress,
-            options.Value.Port,
+            "HappyGopher Server Listening on {ListenEndPoint}; dual mode is {DualMode}; content root is {ContentRoot}",
+            listenEndPoint,
+            options.Value.DualMode,
             gopherContentStore.ContentRoot);
 
         using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -44,7 +48,7 @@ public sealed class GopherLifecycleService(
         {
             bool published = await missionControlClient.TryPublishAsync(
                 eventType: GopherServiceStartedEvent.EventName,
-                payload: new GopherServiceStartedEvent($"{listenAddress}:{options.Value.Port}"),
+                payload: new GopherServiceStartedEvent(listenEndPoint),
                 payloadTypeInfo: HappyGopherJsonContext.Default.GopherServiceStartedEvent,
                 occurredAt: DateTimeOffset.UtcNow,
                 correlationId: null,

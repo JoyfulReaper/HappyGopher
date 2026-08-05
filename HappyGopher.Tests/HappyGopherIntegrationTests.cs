@@ -247,6 +247,52 @@ public sealed class HappyGopherIntegrationTests
     }
 
     [Fact]
+    public async Task Server_DualModeRespondsThroughIPv4AndIPv6AndFormatsStartupTelemetry()
+    {
+        if (!Socket.OSSupportsIPv6)
+        {
+            return;
+        }
+
+        RecordingMissionControlClient recording = new();
+
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(
+                missionControlClient: recording,
+                listenAddress: "::",
+                dualMode: true);
+
+        server.Content.WriteText("dual-stack.txt", "Dual stack response");
+
+        string ipv4Response = await server.RequestAsync(
+            "/dual-stack.txt",
+            IPAddress.Loopback);
+        string ipv6Response = await server.RequestAsync(
+            "/dual-stack.txt",
+            IPAddress.IPv6Loopback);
+
+        Assert.Equal("Dual stack response\r\n.\r\n", ipv4Response);
+        Assert.Equal(ipv4Response, ipv6Response);
+
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
+        await recording.WaitForPublishedEventCountAsync(
+            GopherServiceStartedEvent.EventName,
+            1,
+            timeout.Token);
+
+        RecordedMissionControlEvent telemetry = Assert.Single(
+            recording.PublishedEvents,
+            publishedEvent =>
+                publishedEvent.EventType ==
+                GopherServiceStartedEvent.EventName);
+        GopherServiceStartedEvent payload =
+            Assert.IsType<GopherServiceStartedEvent>(telemetry.Payload);
+
+        Assert.Equal($"[::]:{server.Port}", payload.ListenAddress);
+        Assert.DoesNotContain(":::", payload.ListenAddress);
+    }
+
+    [Fact]
     public async Task Server_PublishesDynamicPageResponseKindTelemetry()
     {
         RecordingMissionControlClient recording = new();
@@ -1070,7 +1116,9 @@ public sealed class HappyGopherIntegrationTests
             int maxConcurrentConnections = 64,
             IEnumerable<IGopherPage>? pages = null,
             IGuestbookStore? guestbookStore = null,
-            GuestbookOptions? guestbookOptions = null)
+            GuestbookOptions? guestbookOptions = null,
+            string? listenAddress = null,
+            bool dualMode = false)
         {
             if ((guestbookStore is null) != (guestbookOptions is null))
             {
@@ -1079,10 +1127,13 @@ public sealed class HappyGopherIntegrationTests
             }
 
             TestContentStore content = new();
-            int port = GetAvailablePort();
+            IPAddress parsedListenAddress = IPAddress.Parse(
+                listenAddress ?? "127.0.0.1");
+            int port = GetAvailablePort(parsedListenAddress, dualMode);
             HappyGopherOptions options = new()
             {
-                ListenAddress = "127.0.0.1",
+                ListenAddress = parsedListenAddress.ToString(),
+                DualMode = dualMode,
                 PublicHost = "127.0.0.1",
                 Port = port,
                 ContentRoot = content.Root,
@@ -1166,15 +1217,25 @@ public sealed class HappyGopherIntegrationTests
             }
         }
 
-        public async Task<string> RequestAsync(string selector) =>
-            WireEncoding.GetString(
-                await RequestBytesAsync(selector));
+        public Task<string> RequestAsync(string selector) =>
+            RequestAsync(selector, IPAddress.Loopback);
 
-        public async Task<byte[]> RequestBytesAsync(string selector)
+        public async Task<string> RequestAsync(
+            string selector,
+            IPAddress address) =>
+            WireEncoding.GetString(
+                await RequestBytesAsync(selector, address));
+
+        public Task<byte[]> RequestBytesAsync(string selector) =>
+            RequestBytesAsync(selector, IPAddress.Loopback);
+
+        public async Task<byte[]> RequestBytesAsync(
+            string selector,
+            IPAddress address)
         {
-            using TcpClient client = new();
+            using TcpClient client = new(address.AddressFamily);
             using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
-            await client.ConnectAsync(IPAddress.Loopback, Port, timeout.Token);
+            await client.ConnectAsync(address, Port, timeout.Token);
 
             await using NetworkStream stream = client.GetStream();
             byte[] request = WireEncoding.GetBytes(selector + "\r\n");
@@ -1229,9 +1290,16 @@ public sealed class HappyGopherIntegrationTests
             }
         }
 
-        private static int GetAvailablePort()
+        private static int GetAvailablePort(
+            IPAddress listenAddress,
+            bool dualMode)
         {
-            TcpListener listener = new(IPAddress.Loopback, 0);
+            TcpListener listener = new(listenAddress, 0);
+            if (listenAddress.AddressFamily == AddressFamily.InterNetworkV6)
+            {
+                listener.Server.DualMode = dualMode;
+            }
+
             listener.Start();
             int port = ((IPEndPoint)listener.LocalEndpoint).Port;
             listener.Stop();

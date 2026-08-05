@@ -12,6 +12,7 @@ public sealed class HappyGopherOptions : ITcpServerOptions
 {
     public const string SectionName = "Gopher";
     public string ListenAddress { get; set; } = "127.0.0.1";
+    public bool DualMode { get; set; } = false;
     public int Port { get; set; } = 70;
     public string PublicHost { get; set; } = "127.0.0.1";
     public string ContentRoot { get; set; } = "content";

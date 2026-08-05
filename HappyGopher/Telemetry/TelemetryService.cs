@@ -98,12 +98,25 @@ public sealed class TelemetryService(
         EndPoint? remote,
         string? ignoredRemoteAddress)
     {
-        string? remoteAddress = (remote as IPEndPoint)?
-            .Address
-            .MapToIPv4()
-            .ToString();
+        if (remote is not IPEndPoint remoteEndPoint ||
+            !IPAddress.TryParse(ignoredRemoteAddress, out IPAddress? ignoredAddress))
+        {
+            return false;
+        }
 
-        return !string.IsNullOrWhiteSpace(ignoredRemoteAddress) &&
-            string.Equals(remoteAddress, ignoredRemoteAddress, StringComparison.OrdinalIgnoreCase);
+        return NormalizeAddress(remoteEndPoint.Address).Equals(
+            NormalizeAddress(ignoredAddress));
     }
+
+    internal static string FormatRemoteEndPoint(EndPoint? remote) =>
+        remote is IPEndPoint remoteEndPoint
+            ? new IPEndPoint(
+                NormalizeAddress(remoteEndPoint.Address),
+                remoteEndPoint.Port).ToString()
+            : remote?.ToString() ?? "unknown";
+
+    private static IPAddress NormalizeAddress(IPAddress address) =>
+        address.IsIPv4MappedToIPv6
+            ? address.MapToIPv4()
+            : address;
 }
