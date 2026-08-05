@@ -1127,6 +1127,11 @@ public sealed class HappyGopherIntegrationTests
                         }
 
                         services.AddSingleton(missionControlClient);
+                        services.AddSingleton<IOptions<MissionControlClientOptions>>(
+                            Options.Create(new MissionControlClientOptions
+                            {
+                                Enabled = true
+                            }));
                         services.AddSingleton<IOptions<HappyGopherOptions>>(Options.Create(options));
                         services.AddSingleton<GopherContentStore>();
                         services.AddSingleton<TelemetryService>();
