@@ -20,6 +20,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json.Serialization.Metadata;
+using Xunit.Sdk;
 
 namespace HappyGopher.Tests;
 
@@ -249,10 +250,7 @@ public sealed class HappyGopherIntegrationTests
     [Fact]
     public async Task Server_DualModeRespondsThroughIPv4AndIPv6AndFormatsStartupTelemetry()
     {
-        if (!Socket.OSSupportsIPv6)
-        {
-            return;
-        }
+        await RequireDualStackLoopbackCapabilityAsync();
 
         RecordingMissionControlClient recording = new();
 
@@ -1087,6 +1085,51 @@ public sealed class HappyGopherIntegrationTests
             "i  integration test\tfake\t(NULL)\t0\r\n",
             viewResponse);
         Assert.EndsWith(".\r\n", viewResponse);
+    }
+
+    private static async Task RequireDualStackLoopbackCapabilityAsync()
+    {
+        TcpListener? listener = null;
+
+        try
+        {
+            listener = new TcpListener(IPAddress.IPv6Any, 0);
+            listener.Server.DualMode = true;
+            listener.Start();
+
+            int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+
+            using (var ipv4Client = new TcpClient(AddressFamily.InterNetwork))
+            {
+                await ipv4Client.ConnectAsync(IPAddress.Loopback, port);
+                using TcpClient acceptedIpv4 = await listener.AcceptTcpClientAsync();
+            }
+
+            using (var ipv6Client = new TcpClient(AddressFamily.InterNetworkV6))
+            {
+                await ipv6Client.ConnectAsync(IPAddress.IPv6Loopback, port);
+                using TcpClient acceptedIpv6 = await listener.AcceptTcpClientAsync();
+            }
+        }
+        catch (PlatformNotSupportedException exception)
+        {
+            throw SkipException.ForSkip(
+                $"Dual-stack IPv4/IPv6 loopback connectivity is unavailable: {exception.Message}");
+        }
+        catch (NotSupportedException exception)
+        {
+            throw SkipException.ForSkip(
+                $"Dual-stack IPv4/IPv6 loopback connectivity is unavailable: {exception.Message}");
+        }
+        catch (SocketException exception)
+        {
+            throw SkipException.ForSkip(
+                $"Dual-stack IPv4/IPv6 loopback connectivity is unavailable: {exception.Message}");
+        }
+        finally
+        {
+            listener?.Stop();
+        }
     }
 
     private sealed class TestGopherServer : IAsyncDisposable

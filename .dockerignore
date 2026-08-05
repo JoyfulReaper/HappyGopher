@@ -5,6 +5,8 @@
 
 **/bin
 **/obj
+/publish-review/
+/publish-test/
 
 **/guestbook.jsonl
 **/data/

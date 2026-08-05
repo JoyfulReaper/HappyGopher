@@ -530,8 +530,9 @@ Build the image from the repository root:
 docker build -t happygopher .
 ```
 
-The image exposes TCP port `70` and runs the application as the non-root
-`$APP_UID` user supplied by the .NET runtime image. The configured
+The image runs the application as the non-root `$APP_UID` user supplied by the
+.NET runtime image. `EXPOSE 70` is image metadata only: it does not publish a
+host port or open a host or provider firewall. The configured
 `Gopher:ListenAddress` must accept container traffic when the server should be
 reachable outside the container.
 
@@ -557,17 +558,38 @@ Double underscores are the standard .NET environment-variable separator for
 nested configuration keys. The mounted host directory must be writable by the
 container user.
 
-The `70:70` mapping normally publishes container port 70 on the host's IPv4 and
-IPv6 addresses. HappyGopher must bind to `::` with dual mode enabled so Docker
-can reach the application through either address family. A native IPv6 address
-inside the container is not required for ordinary published-port forwarding.
+Binding HappyGopher to `::` with `DualMode=true` creates one application socket
+that accepts native IPv6 and IPv4-mapped connections. This is the recommended
+application configuration, but it does not guarantee that every Docker host
+publishes port 70 through both address families.
 
-Compose network `enable_ipv6: true` is only required when the container itself
-needs native IPv6 addressing, direct IPv6 routing, or outbound IPv6
-connectivity. Explicitly disabling IPv6 in the container is incompatible with
-binding HappyGopher to `::`. Docker port publishing also does not replace host
-security policy: Windows and Linux host firewalls must separately allow inbound
-TCP port 70.
+Host reachability also depends on Docker Engine versus Docker Desktop, host
+IPv6 availability, daemon and default-bind settings, whether the userland proxy
+is enabled, IPv4-only versus IPv6-enabled bridge networks, NAT versus routed
+gateway modes, explicit host-address bindings in Compose, and host and provider
+firewall policy. Some configurations proxy host IPv6 traffic to a container's
+IPv4 address, so a native container IPv6 address is not always required for
+ordinary published-port forwarding. That proxy behavior is not universal,
+especially when the userland proxy is disabled.
+
+Use an IPv6-enabled Compose network when the container needs native IPv6
+addressing, direct or routed IPv6 connectivity, outbound native IPv6, or
+behavior that does not rely on Docker's proxying. Explicitly disabling IPv6 in
+the container is incompatible with binding HappyGopher to `::`. Independently
+allow inbound TCP port 70 over IPv4 and IPv6 in the host and VPS-provider
+firewalls, and publish both DNS `A` and `AAAA` records for dual-family clients.
+
+Verify the effective port mapping and test both families from an external
+client instead of assuming the Compose configuration guarantees them:
+
+```text
+docker port <container-name> 70/tcp
+curl -4 gopher://gopher.example.com/
+curl -6 gopher://gopher.example.com/
+```
+
+Command availability and Gopher protocol support depend on the installed
+client; `nc -4` and `nc -6` are alternatives where available.
 
 ## Installing as a Windows Service
 
