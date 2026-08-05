@@ -6,6 +6,7 @@
 
 using HappyGopher.Gopher;
 using HappyGopher.Integrations.HappyQotd;
+using System.Text.Json;
 
 namespace HappyGopher.Pages;
 
@@ -29,6 +30,12 @@ public sealed class RandomQuotePage(
         try
         {
             HappyQotdQuote? quote = await happyQotdClient.GetRandomQuoteAsync(cancellationToken);
+
+            if (quote is not null && quote.Text is null)
+            {
+                throw new JsonException(
+                    "HappyQOTD returned a quote with null text.");
+            }
 
             await writer.WriteTextLineAsync("Random Quote", cancellationToken);
             await writer.WriteTextLineAsync(string.Empty, cancellationToken);
@@ -62,6 +69,17 @@ public sealed class RandomQuotePage(
             logger.LogWarning(
                 ex,
                 "HappyQOTD was unavailable while serving {Selector}.",
+                Selector);
+
+            await writer.WriteTextLineAsync(
+                "Random Quote is temporarily unavailable.",
+                cancellationToken);
+        }
+        catch (JsonException ex)
+        {
+            logger.LogWarning(
+                ex,
+                "HappyQOTD returned an invalid payload while serving {Selector}.",
                 Selector);
 
             await writer.WriteTextLineAsync(

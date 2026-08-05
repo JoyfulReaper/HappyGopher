@@ -11,7 +11,6 @@ using HappyGopher.Pages.Guestbook;
 using HappyGopher.Telemetry;
 using JoyfulReaperLib.MissionControl;
 using JoyfulReaperLib.TcpServer;
-using Microsoft.Extensions.Options;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -51,31 +50,7 @@ builder.Services.AddHostedService<GopherLifecycleService>();
 builder.Services.AddScoped<IGopherPage, ServerTimePage>();
 
 // QOTD integration
-if (builder.Configuration.GetValue<bool>($"{HappyQotdOptions.SectionName}:Enabled"))
-{
-    builder.Services.AddOptions<HappyQotdOptions>()
-    .Bind(builder.Configuration.GetSection(HappyQotdOptions.SectionName))
-    .Validate(options =>
-        Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out _),
-        "HappyQotd:BaseUrl must be an absolute URI when the integration is enabled.")
-    .Validate(options =>
-        options.TimeoutMilliseconds > 0,
-        "HappyQotd:TimeoutMilliseconds must be positive when the integration is enabled.")
-    .ValidateOnStart();
-
-    builder.Services.AddHttpClient<IHappyQotdClient, HappyQotdClient>(
-       (services, client) =>
-       {
-           HappyQotdOptions options = services
-               .GetRequiredService<IOptions<HappyQotdOptions>>()
-               .Value;
-
-           client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/') + "/");
-           client.Timeout = TimeSpan.FromMilliseconds(options.TimeoutMilliseconds);
-       });
-    builder.Services.AddScoped<IGopherPage, QuoteOfTheDayPage>();
-    builder.Services.AddScoped<IGopherPage, RandomQuotePage>();
-}
+builder.Services.AddHappyQotd(builder.Configuration);
 
 // Guestbook integration
 GuestbookServiceCollectionExtensions.AddGuestbookPages(builder.Services, builder.Configuration);
