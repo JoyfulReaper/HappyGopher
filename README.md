@@ -4,13 +4,12 @@
 [![License](https://img.shields.io/github/license/JoyfulReaper/HappyGopher)](LICENSE)
 [![GitHub Repo](https://img.shields.io/badge/GitHub-JoyfulReaper%2FHappyGopher-181717?logo=github)](https://github.com/JoyfulReaper/HappyGopher)
 
-A small Gopher server for Windows, built with C# and .NET 10. It serves
+A small cross-platform Gopher server built with C# and .NET 10. It serves
 static content and supports compiled dynamic Gopher pages.
 
 HappyGopher serves files, directory menus, and dynamic pages over the classic
 [Gopher protocol](https://en.wikipedia.org/wiki/Gopher_%28protocol%29). It can
-run directly from the console during development or as a Windows Service for
-long-running installations.
+run directly from the console, in a Linux container, or as a Windows Service.
 
 No web framework. No database. No JavaScript. Just a TCP listener, content,
 optional compiled pages, and a protocol from a simpler time.
@@ -54,7 +53,7 @@ real-world example of HappyGopher hosting Gopher content.
 * Optionally provides a file-backed guestbook with named or anonymous entries
   and replay suppression for clients that resend type-7 requests
 * Optionally publishes selector-served telemetry through Mission Control
-* Runs as a console application or Windows Service
+* Runs as a console application or Linux container, with Windows Service support
 * Includes a Dockerfile for container deployment
 * Configurable listening address and port
 * Configurable public hostname used in generated menus
@@ -68,8 +67,10 @@ real-world example of HappyGopher hosting Gopher content.
 ## Requirements
 
 * [.NET 10 SDK](https://dotnet.microsoft.com/download)
-* Windows is the primary development and test platform; the included Dockerfile
-  supports Linux container deployment
+
+HappyGopher runs anywhere the .NET 10 runtime is supported. The repository
+includes a Dockerfile for Linux deployment and Windows Service integration for
+Windows installations.
 
 The server uses TCP port `70` by default, the standard Gopher port.
 
@@ -451,14 +452,14 @@ Protocol support depends on how that particular `curl` build was compiled.
 
 ## Publishing
 
-Publish a framework-dependent Windows build:
+Publish a portable framework-dependent build:
 
 ```powershell
 dotnet publish .\HappyGopher\HappyGopher.csproj `
     --configuration Release `
-    --runtime win-x64 `
     --self-contained false `
-    --output .\publish
+    --output .\publish `
+    /p:UseAppHost=false
 ```
 
 HappyGopher intentionally uses a framework-dependent .NET deployment rather
@@ -468,10 +469,10 @@ yet; pages currently must be compiled and registered explicitly.
 
 The published `content` directory and `appsettings.json` should remain beside the executable. Content files under `HappyGopher/content` are copied recursively during publish.
 
-Run the published server:
+Run the published server on any supported platform with the .NET 10 runtime:
 
 ```powershell
-.\publish\HappyGopher.exe
+dotnet .\publish\HappyGopher.dll
 ```
 
 ## Docker Deployment
@@ -510,7 +511,18 @@ container user.
 
 ## Installing as a Windows Service
 
-First publish the application to a permanent location, such as:
+For Windows Service installation, publish a Windows app host to a permanent
+location, such as:
+
+```powershell
+dotnet publish .\HappyGopher\HappyGopher.csproj `
+    --configuration Release `
+    --runtime win-x64 `
+    --self-contained false `
+    --output C:\Services\HappyGopher
+```
+
+The example output directory is:
 
 ```text
 C:\Services\HappyGopher
@@ -559,7 +571,7 @@ That said, this is an early-stage project. Before exposing it publicly:
 * Serve only files intended for public access.
 * Review your firewall and router configuration.
 * Avoid placing secrets anywhere inside the content directory.
-* Run the service under a restricted Windows account where practical.
+* Run the process under a restricted operating-system account where practical.
 * Treat an enabled guestbook as untrusted public input and monitor its storage.
 
 Gopher does not provide encryption. Traffic, selectors, and downloaded content are sent in plaintext.
@@ -577,8 +589,6 @@ Gopher does not provide encryption. Traffic, selectors, and downloaded content a
 * No administrative interface
 * No guestbook moderation system
 * No official packaged releases yet
-* Primarily developed and tested on Windows; Docker/Linux operation is also
-  supported
 
 ## Project Structure
 
