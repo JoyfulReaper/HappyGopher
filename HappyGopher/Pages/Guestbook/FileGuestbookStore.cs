@@ -42,7 +42,9 @@ public sealed class FileGuestbookStore : IGuestbookStore
     public FileGuestbookStore(IOptions<GuestbookOptions> options, ILogger<FileGuestbookStore> logger)
     {
         _guestbookOptions = options.Value;
-        _fullPath = Path.GetFullPath(_guestbookOptions.DataPath);
+        _fullPath = Path.GetFullPath(Path.IsPathRooted(_guestbookOptions.DataPath)
+            ? _guestbookOptions.DataPath
+            : Path.Combine(AppContext.BaseDirectory, _guestbookOptions.DataPath));
         _logger = logger;
     }
 

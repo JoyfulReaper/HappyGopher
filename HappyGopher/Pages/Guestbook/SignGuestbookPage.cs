@@ -93,7 +93,7 @@ public sealed class SignGuestbookPage : IGopherPage
             Message = parseResult.Message!
         };
 
-        bool added = await _guestbookStore.AddEntryAsync(entry, cancellationToken);
+        _ = await _guestbookStore.AddEntryAsync(entry, cancellationToken);
 
         var displayName = string.IsNullOrWhiteSpace(entry.Name)
             ? "Anonymous"

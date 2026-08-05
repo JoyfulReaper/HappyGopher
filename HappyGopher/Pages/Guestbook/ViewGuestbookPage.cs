@@ -54,7 +54,7 @@ public sealed class ViewGuestbookPage : IGopherPage
             cancellationToken);
 
         var entries = await _guestbookStore.GetEntriesAsync(
-            take: 50,
+            take: _guestbookOptions.MaxEntriesDisplayed,
             cancellationToken);
 
         if (entries.Count == 0)
