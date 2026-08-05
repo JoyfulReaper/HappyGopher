@@ -18,6 +18,7 @@ public sealed class FileGuestbookStore : IGuestbookStore
     private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
     private readonly string _fullPath;
     private readonly ILogger<FileGuestbookStore> _logger;
+    private readonly TimeProvider _timeProvider;
     private static readonly TimeSpan DuplicateWindow = TimeSpan.FromSeconds(5); // TODO: Make configurable
 
     private string? _lastSubmissionKey;
@@ -39,13 +40,24 @@ public sealed class FileGuestbookStore : IGuestbookStore
         Options = FileOptions.Asynchronous
     };
 
-    public FileGuestbookStore(IOptions<GuestbookOptions> options, ILogger<FileGuestbookStore> logger)
+    public FileGuestbookStore(
+        IOptions<GuestbookOptions> options,
+        ILogger<FileGuestbookStore> logger)
+        : this(options, logger, TimeProvider.System)
+    {
+    }
+
+    public FileGuestbookStore(
+        IOptions<GuestbookOptions> options,
+        ILogger<FileGuestbookStore> logger,
+        TimeProvider timeProvider)
     {
         _guestbookOptions = options.Value;
         _fullPath = Path.GetFullPath(Path.IsPathRooted(_guestbookOptions.DataPath)
             ? _guestbookOptions.DataPath
             : Path.Combine(AppContext.BaseDirectory, _guestbookOptions.DataPath));
         _logger = logger;
+        _timeProvider = timeProvider;
     }
 
     public async Task<bool> AddEntryAsync(
@@ -61,7 +73,7 @@ public sealed class FileGuestbookStore : IGuestbookStore
 
         try
         {
-            DateTimeOffset now = DateTimeOffset.UtcNow;
+            DateTimeOffset now = _timeProvider.GetUtcNow();
 
             // NOTE: Some Gopher clients, including Gophie, may replay type-7 search requests and create duplicate guestbook entries.
             if (string.Equals(submissionKey, _lastSubmissionKey, StringComparison.Ordinal) &&

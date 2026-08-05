@@ -7,12 +7,14 @@
 using HappyGopher.Events;
 using HappyGopher.Gopher;
 using HappyGopher.Pages;
+using HappyGopher.Pages.Guestbook;
 using HappyGopher.Telemetry;
 using JoyfulReaperLib.MissionControl;
 using JoyfulReaperLib.TcpServer;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using System.Net;
 using System.Net.Sockets;
@@ -998,6 +1000,49 @@ public sealed class HappyGopherIntegrationTests
         await server.StopAsync(timeout.Token);
     }
 
+    [Fact]
+    public async Task Server_GuestbookTypeSevenRequestStoresOnceSuppressesReplayAndDisplaysEntry()
+    {
+        using TemporaryDirectory temporaryDirectory = new();
+        GuestbookOptions guestbookOptions = new()
+        {
+            Enabled = true,
+            DataPath = temporaryDirectory.GetPath("guestbook.jsonl"),
+            MaxEntriesDisplayed = 25
+        };
+        FileGuestbookStore guestbookStore = new(
+            Options.Create(guestbookOptions),
+            NullLogger<FileGuestbookStore>.Instance,
+            TimeProvider.System);
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(
+                guestbookStore: guestbookStore,
+                guestbookOptions: guestbookOptions);
+        const string request =
+            "guestbook/sign\tKyle | integration test";
+
+        string firstResponse = await server.RequestAsync(request);
+        IReadOnlyList<GuestbookEntry> entriesAfterFirstRequest =
+            await guestbookStore.GetEntriesAsync(take: 10);
+
+        string replayResponse = await server.RequestAsync(request);
+        IReadOnlyList<GuestbookEntry> entriesAfterReplay =
+            await guestbookStore.GetEntriesAsync(take: 10);
+        string viewResponse = await server.RequestAsync("guestbook");
+
+        GuestbookEntry entry = Assert.Single(entriesAfterFirstRequest);
+        Assert.Equal("Kyle", entry.Name);
+        Assert.Equal("integration test", entry.Message);
+        Assert.Single(entriesAfterReplay);
+        Assert.EndsWith(".\r\n", firstResponse);
+        Assert.EndsWith(".\r\n", replayResponse);
+        Assert.Contains("iKyle\tfake\t(NULL)\t0\r\n", viewResponse);
+        Assert.Contains(
+            "i  integration test\tfake\t(NULL)\t0\r\n",
+            viewResponse);
+        Assert.EndsWith(".\r\n", viewResponse);
+    }
+
     private sealed class TestGopherServer : IAsyncDisposable
     {
         private readonly IHost _host;
@@ -1023,8 +1068,16 @@ public sealed class HappyGopherIntegrationTests
             IMissionControlClient? missionControlClient = null,
             string? telemetryIgnoredRemoteAddress = null,
             int maxConcurrentConnections = 64,
-            IEnumerable<IGopherPage>? pages = null)
+            IEnumerable<IGopherPage>? pages = null,
+            IGuestbookStore? guestbookStore = null,
+            GuestbookOptions? guestbookOptions = null)
         {
+            if ((guestbookStore is null) != (guestbookOptions is null))
+            {
+                throw new ArgumentException(
+                    "The guestbook store and options must be provided together.");
+            }
+
             TestContentStore content = new();
             int port = GetAvailablePort();
             HappyGopherOptions options = new()
@@ -1061,6 +1114,16 @@ public sealed class HappyGopherIntegrationTests
                         foreach (IGopherPage page in registeredPages)
                         {
                             services.AddSingleton<IGopherPage>(page);
+                        }
+
+                        if (guestbookStore is not null &&
+                            guestbookOptions is not null)
+                        {
+                            services.AddSingleton<IGuestbookStore>(guestbookStore);
+                            services.AddSingleton<IOptions<GuestbookOptions>>(
+                                Options.Create(guestbookOptions));
+                            services.AddScoped<IGopherPage, ViewGuestbookPage>();
+                            services.AddScoped<IGopherPage, SignGuestbookPage>();
                         }
 
                         services.AddSingleton(missionControlClient);
