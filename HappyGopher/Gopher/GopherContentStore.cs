@@ -106,8 +106,56 @@ public sealed class GopherContentStore
         await writer.CompleteAsync(cancellationToken);
     }
 
-    private static bool IsTextFile(string path) =>
-        TextExtensions.Contains(Path.GetExtension(path));
+    private static bool IsTextFile(string path)
+    {
+        string extension = Path.GetExtension(path);
+
+        if (TextExtensions.Contains(extension))
+        {
+            return true;
+        }
+
+        // Unknown named extensions still default to binary.
+        if (!string.IsNullOrEmpty(extension))
+        {
+            return false;
+        }
+
+        // Extensionless files get a small content check.
+        return LooksLikeTextFile(path);
+    }
+
+    private static bool LooksLikeTextFile(string path)
+    {
+        const int sampleSize = 4096;
+        Span<byte> buffer = stackalloc byte[sampleSize];
+
+        using FileStream stream = new(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+
+        int bytesRead = stream.Read(buffer);
+
+        for (int i = 0; i < bytesRead; i++)
+        {
+            byte value = buffer[i];
+
+            if (value == 0)
+            {
+                return false;
+            }
+
+            bool allowedControl = value is (byte)'\r' or (byte)'\n' or (byte)'\t';
+            if (value < 0x20 && !allowedControl)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 
     private async Task WriteDirectoryMenuAsync(
         string directory,
@@ -175,7 +223,7 @@ public sealed class GopherContentStore
             return 'I';
         }
 
-        return TextExtensions.Contains(extension) ? '0' : '9';
+        return IsTextFile(path) ? '0' : '9';
     }
 
     private static int ComparePathsByName(string left, string right) =>

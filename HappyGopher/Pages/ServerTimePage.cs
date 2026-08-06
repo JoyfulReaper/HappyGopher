@@ -14,15 +14,22 @@ namespace HappyGopher.Pages;
 /// </summary>
 public sealed class ServerTimePage(TimeProvider timeProvider) : IGopherPage
 {
+    private bool enabled = true; // TODO: Make this configurable.
     public const string PageSelector = "/server-time";
 
     public string Selector =>
         PageSelector;
 
     public async Task<GopherResponseKind> WriteAsync(
+        GopherRequest request,
         Stream output,
         CancellationToken cancellationToken)
     {
+        if (!enabled)
+        {
+            return GopherResponseKind.NotFound;
+        }
+
         ArgumentNullException.ThrowIfNull(output);
 
         await using GopherResponseWriter writer = new(output);

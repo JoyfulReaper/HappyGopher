@@ -4,13 +4,12 @@
 [![License](https://img.shields.io/github/license/JoyfulReaper/HappyGopher)](LICENSE)
 [![GitHub Repo](https://img.shields.io/badge/GitHub-JoyfulReaper%2FHappyGopher-181717?logo=github)](https://github.com/JoyfulReaper/HappyGopher)
 
-A small Gopher server for Windows, built with C# and .NET 10. It serves
+A small cross-platform Gopher server built with C# and .NET 10. It serves
 static content and supports compiled dynamic Gopher pages.
 
 HappyGopher serves files, directory menus, and dynamic pages over the classic
 [Gopher protocol](https://en.wikipedia.org/wiki/Gopher_%28protocol%29). It can
-run directly from the console during development or as a Windows Service for
-long-running installations.
+run directly from the console, in a Linux container, or as a Windows Service.
 
 No web framework. No database. No JavaScript. Just a TCP listener, content,
 optional compiled pages, and a protocol from a simpler time.
@@ -44,12 +43,18 @@ real-world example of HappyGopher hosting Gopher content.
 * Serves static text, images, and binary files over Gopher
 * Supports custom `gophermap` menu files
 * Automatically generates directory menus when no `gophermap` exists
+* Parses type-7 input/search requests as `GopherRequest` selector and input
 * Supports exact-selector dynamic pages through `IGopherPage`
 * Resolves dynamic pages before static content at the same selector
 * Provides `GopherResponseWriter` for reusable protocol-safe response
   formatting
-* Includes a `/server-time` dynamic page that returns the current UTC time
-* Runs as a console application or Windows Service
+* Includes `/server-time` and operational `/healthz` dynamic pages
+* Optionally provides `/qotd` and `/random-quote` through HappyQOTD
+* Optionally provides a file-backed guestbook with named or anonymous entries
+  and replay suppression for clients that resend type-7 requests
+* Optionally publishes selector-served telemetry through Mission Control
+* Runs as a console application or Linux container, with Windows Service support
+* Includes a Dockerfile for container deployment
 * Configurable listening address and port
 * Configurable public hostname used in generated menus
 * Limits concurrent connections
@@ -62,7 +67,10 @@ real-world example of HappyGopher hosting Gopher content.
 ## Requirements
 
 * [.NET 10 SDK](https://dotnet.microsoft.com/download)
-* Windows is the primary supported platform
+
+HappyGopher runs anywhere the .NET 10 runtime is supported. The repository
+includes a Dockerfile for Linux deployment and Windows Service integration for
+Windows installations.
 
 The server uses TCP port `70` by default, the standard Gopher port.
 
@@ -87,7 +95,9 @@ The default checked-in configuration listens on loopback at port `70`.
 127.0.0.1:70
 ```
 
-With this default, HappyGopher accepts local connections only. To serve other machines, change `ListenAddress` to an address such as `0.0.0.0` and review your firewall rules.
+With this default, HappyGopher accepts IPv4 local connections only. To serve
+other machines or enable IPv6, configure `ListenAddress` and `DualMode` for the
+desired address families and review your firewall rules.
 
 ## Configuration
 
@@ -109,38 +119,106 @@ The default configuration resembles:
   },
   "Gopher": {
     "ListenAddress": "127.0.0.1",
+    "DualMode": false,
     "Port": 70,
     "PublicHost": "127.0.0.1",
     "ContentRoot": "content",
     "MaxConcurrentConnections": 64,
     "MaxSelectorBytes": 4096,
+    "MaxInputBytes": 1024,
     "RequestTimeoutSeconds": 15
+  },
+  "MissionControl": {
+    "Enabled": false,
+    "BaseUrl": "http://localhost:5190",
+    "ApiKey": "",
+    "TimeoutMilliseconds": 1000
+  },
+  "HappyQotd": {
+    "BaseUrl": "https://qotd-api.kgivler.com",
+    "TimeoutMilliseconds": 2000,
+    "Enabled": false
+  },
+  "Guestbook": {
+    "Enabled": false,
+    "DataPath": "data/guestbook.jsonl",
+    "MaxEntriesDisplayed": 50
   }
 }
 ```
 
 ### Configuration options
 
-| Setting                    |     Default | Description                                                      |
-| -------------------------- | ----------: | ---------------------------------------------------------------- |
-| `ListenAddress`            | `127.0.0.1` | Local IP address on which the TCP server listens.                |
-| `Port`                     |        `70` | TCP port used by the server.                                     |
-| `PublicHost`               | `127.0.0.1` | Hostname or IP address advertised inside generated Gopher menus. |
-| `ContentRoot`              |   `content` | Directory containing files and `gophermap` menus.                |
-| `MaxConcurrentConnections` |        `64` | Maximum number of requests handled concurrently.                 |
-| `MaxSelectorBytes`         |      `4096` | Maximum permitted selector length.                               |
-| `RequestTimeoutSeconds`    |        `15` | Time allowed for a client to send its request.                   |
+#### Gopher
+
+| Setting                         |     Default | Description                                                      |
+| ------------------------------- | ----------: | ---------------------------------------------------------------- |
+| `ListenAddress`                 | `127.0.0.1` | Local IP address on which the TCP server listens.                |
+| `DualMode`                      |      `false` | Allows one IPv6 wildcard listener to accept IPv6 and IPv4.       |
+| `Port`                          |        `70` | TCP port used by the server.                                     |
+| `PublicHost`                    | `127.0.0.1` | Hostname or IP address advertised inside generated Gopher menus. |
+| `ContentRoot`                   |   `content` | Directory containing files and `gophermap` menus.                |
+| `MaxConcurrentConnections`      |        `64` | Maximum number of requests handled concurrently.                 |
+| `MaxSelectorBytes`              |      `4096` | Maximum permitted selector length in UTF-8 bytes.                |
+| `MaxInputBytes`                 |      `1024` | Maximum permitted type-7 input length in UTF-8 bytes.            |
+| `RequestTimeoutSeconds`         |        `15` | Time allowed for a client to send its request.                   |
+| `TelemetryIgnoredRemoteAddress` |   not set   | Exact remote IP used to suppress selector telemetry.             |
+| `TelemetryIgnoredSelectors`     |      empty  | Exact, case-sensitive selectors used to suppress telemetry.      |
+
+#### Mission Control
+
+| Setting               |                  Default | Description                                      |
+| --------------------- | -----------------------: | ------------------------------------------------ |
+| `Enabled`             |                  `false` | Enables selector-served telemetry.               |
+| `BaseUrl`             | `http://localhost:5190` | Mission Control service base URL.                |
+| `ApiKey`              |                    empty | API key sent to Mission Control.                  |
+| `TimeoutMilliseconds` |                   `1000` | Mission Control client timeout in milliseconds.  |
+
+#### HappyQOTD
+
+| Setting               |                             Default | Description                                  |
+| --------------------- | ----------------------------------: | -------------------------------------------- |
+| `Enabled`             |                             `false` | Registers the HappyQOTD integration pages.   |
+| `BaseUrl`             | `https://qotd-api.kgivler.com` | HappyQOTD service base URL.                  |
+| `TimeoutMilliseconds` |                              `2000` | HappyQOTD request timeout in milliseconds.  |
+
+#### Guestbook
+
+| Setting               |                    Default | Description                                      |
+| --------------------- | -------------------------: | ------------------------------------------------ |
+| `Enabled`             |                    `false` | Registers the guestbook store and pages.         |
+| `DataPath`            | `data/guestbook.jsonl` | Newline-delimited JSON storage path.             |
+| `MaxEntriesDisplayed` |                       `50` | Maximum number of recent entries shown.          |
 
 `ListenAddress` and `PublicHost` serve different purposes:
 
-* `ListenAddress` controls where HappyGopher accepts connections. The checked-in default is loopback-only, not all interfaces.
+* `ListenAddress` controls where HappyGopher accepts connections. The checked-in default is IPv4 loopback-only, not all interfaces.
+* `DualMode` controls whether an IPv6 wildcard listener also accepts IPv4 clients. HappyGopher still creates only one listener.
 * `PublicHost` is the address placed into menu entries returned to clients.
+
+Use these combinations for common listener configurations:
+
+| Purpose             | `ListenAddress` | `DualMode` |
+| ------------------- | --------------- | ---------- |
+| IPv4 loopback       | `127.0.0.1`     | `false`    |
+| IPv4 all interfaces | `0.0.0.0`       | `false`    |
+| IPv6 loopback       | `::1`           | `false`    |
+| IPv6 all interfaces | `::`            | `false`    |
+| IPv4 and IPv6       | `::`            | `true`     |
+
+Enabling `DualMode` with an IPv4 address or a non-wildcard IPv6 address is
+invalid and causes startup to fail.
 
 For a public server, set `PublicHost` to the hostname clients actually use:
 
 ```json
 "PublicHost": "gopher.example.com"
 ```
+
+For dual-stack public service, use a DNS hostname with both `A` and `AAAA`
+records for `PublicHost`. Avoid a raw IPv6 literal because generated Gopher menu
+fields do not provide the same unambiguous bracketed host-and-port formatting as
+a network endpoint.
 
 For a public server, bind to the interface that should accept client connections:
 
@@ -203,6 +281,7 @@ Tabs, carriage returns, and newlines in generated menu fields are replaced with 
 |  `0` | Text file            |
 |  `1` | Directory or menu    |
 |  `3` | Error                |
+|  `7` | Input/search prompt  |
 |  `9` | Binary file          |
 |  `g` | GIF image            |
 |  `I` | Other image          |
@@ -227,6 +306,18 @@ dynamic page therefore overrides a static resource at the same selector.
 Selectors without a matching page fall back to `GopherContentStore` and the
 normal static-content behavior.
 
+Type-7 requests provide input after the selector, separated by the first tab:
+
+```text
+selector<TAB>input<CRLF>
+```
+
+Input is separated from the selector by the first tab. The selector and input
+are exposed to dynamic pages through `GopherRequest`. `MaxSelectorBytes` and
+`MaxInputBytes` limit their UTF-8 encoded lengths independently. Requests
+without a tab have a null `Input`; a trailing tab produces an empty input
+string. Type `7` menu entries tell compatible clients to prompt for this input.
+
 `GopherResponseWriter` provides reusable formatting for text responses, menu
 items, informational lines, and errors. It handles CRLF line endings, menu
 field sanitization, dot-stuffing, and response termination.
@@ -237,6 +328,7 @@ public sealed class ExamplePage : IGopherPage
     public string Selector => "/example";
 
     public async Task<GopherResponseKind> WriteAsync(
+        GopherRequest request,
         Stream output,
         CancellationToken cancellationToken)
     {
@@ -263,14 +355,118 @@ Pages currently require explicit dependency-injection registration in
 builder.Services.AddScoped<IGopherPage, ExamplePage>();
 ```
 
-The included example uses selector `/server-time`, returns a text response
+The core example uses selector `/server-time`, returns a text response
 containing the current UTC server time, and is implemented by `ServerTimePage`
-in `HappyGopher/Pages/ExampleServerTimePage.cs`. The sample root `gophermap`
-links to it.
+in `HappyGopher/Pages/ServerTimePage.cs`. The always-registered `/healthz` page
+returns the terminated text response `OK`; it is an operational selector and is
+not added to the default root `gophermap`. The HappyQOTD and guestbook pages are
+additional examples of compiled dynamic pages. The sample root `gophermap`
+links to the server-time page but does not advertise operational or optional
+pages.
 
 Runtime DLL scanning and plugin-folder loading are planned but are not
 implemented. HappyGopher does not currently discover page assemblies
 automatically.
+
+## Guestbook
+
+The optional file-backed guestbook is controlled by `Guestbook:Enabled`. When
+enabled, `/guestbook` displays recent entries and `/guestbook/sign` accepts
+type-7 input in either form:
+
+```text
+Message
+Name | Message
+```
+
+Enabling the guestbook through an environment variable:
+
+```text
+Guestbook__Enabled=true
+```
+
+or JSON configuration:
+
+```json
+"Guestbook": {
+  "Enabled": true
+}
+```
+
+does not automatically modify static `gophermap` files. Add these entries to
+the deployed root `gophermap` when enabling the feature:
+
+```text
+1Guestbook	/guestbook
+7Sign Guestbook	/guestbook/sign
+```
+
+`/guestbook` displays recent entries. `/guestbook/sign` is a type-7 input item
+used to submit an entry. Optional dynamic pages are registered from
+configuration, while static menus remain administrator-managed. A fresh clone
+requires no menu changes when the guestbook remains disabled because the
+default root menu does not advertise it.
+
+An omitted or blank name is displayed as `Anonymous`. Names are limited to 40
+characters and messages to 500 characters. The store appends entries as
+newline-delimited JSON and `MaxEntriesDisplayed` controls how many recent
+entries appear on the view page.
+
+Some Gopher clients replay type-7 requests. To avoid an immediate duplicate,
+the store suppresses an identical normalized name and message received within
+five seconds. This is replay protection, not general abuse prevention.
+
+Relative `DataPath` values are resolved from the application directory
+(`AppContext.BaseDirectory`); absolute paths are used directly. The process
+must have write access to the selected directory.
+
+The guestbook currently has no authentication, moderation interface, CAPTCHA,
+or per-client rate limiting. Do not treat it as secure against automated or
+deliberate abuse.
+
+## HappyQOTD Integration
+
+The optional HappyQOTD integration uses `HappyQotd:Enabled`,
+`HappyQotd:BaseUrl`, and `HappyQotd:TimeoutMilliseconds`. Its pages are
+registered only when the integration is enabled:
+
+* `/qotd` returns the quote selected for the current day.
+* `/random-quote` returns a random quote.
+
+Upstream HTTP failures and timeouts produce a completed plain-text unavailable
+response rather than crashing the Gopher server.
+
+## Mission Control Telemetry
+
+Mission Control configuration uses `MissionControl:Enabled`,
+`MissionControl:BaseUrl`, `MissionControl:ApiKey`, and
+`MissionControl:TimeoutMilliseconds`. Selector-served telemetry is skipped
+when Mission Control is disabled.
+
+Each selector-served event reports the selector, response type, remote
+endpoint, duration, and success state. Its event metadata also carries the
+request timestamp and correlation ID. Telemetry suppression follows these
+rules:
+
+* With only `Gopher:TelemetryIgnoredRemoteAddress` configured, an exact
+  normalized IP-address match suppresses telemetry.
+* With only `Gopher:TelemetryIgnoredSelectors` configured, an exact selector
+  match suppresses telemetry regardless of source.
+* With both configured, the remote address and selector must both match.
+
+Selector matching uses ordinal, case-sensitive comparison. Blank configured
+entries are ignored; selectors are not URL-decoded, and prefixes do not match.
+For example, `/healthz` does not match `/Healthz` or `/healthz/details`.
+Environment variables bind array entries by index, such as
+`Gopher__TelemetryIgnoredSelectors__0=/healthz`.
+
+A monitor that only opens and closes a TCP connection never sends a selector,
+so it produces no selector-served telemetry and needs no ignore rule. To
+exercise the built-in Gopher health page, the monitor must send:
+
+```text
+/healthz\r\n
+```
 
 ## Testing the Server
 
@@ -281,8 +477,9 @@ dotnet test
 ```
 
 Tests cover static serving, dynamic routing, dynamic-page precedence and
-static fallback, response formatting, telemetry, concurrency, request limits,
-and graceful shutdown.
+static fallback, type-7 parsing, HappyQOTD pages, guestbook storage and pages,
+response formatting, telemetry, concurrency, request limits, and graceful
+shutdown.
 
 Use a Gopher client and connect to:
 
@@ -324,14 +521,14 @@ Protocol support depends on how that particular `curl` build was compiled.
 
 ## Publishing
 
-Publish a framework-dependent Windows build:
+Publish a portable framework-dependent build:
 
 ```powershell
 dotnet publish .\HappyGopher\HappyGopher.csproj `
     --configuration Release `
-    --runtime win-x64 `
     --self-contained false `
-    --output .\publish
+    --output .\publish `
+    /p:UseAppHost=false
 ```
 
 HappyGopher intentionally uses a framework-dependent .NET deployment rather
@@ -341,15 +538,120 @@ yet; pages currently must be compiled and registered explicitly.
 
 The published `content` directory and `appsettings.json` should remain beside the executable. Content files under `HappyGopher/content` are copied recursively during publish.
 
-Run the published server:
+Run the published server on any supported platform with the .NET 10 runtime:
 
 ```powershell
-.\publish\HappyGopher.exe
+dotnet .\publish\HappyGopher.dll
 ```
+
+## Docker Deployment
+
+Build the image from the repository root:
+
+```powershell
+docker build -t happygopher .
+```
+
+The image runs the application as the non-root `$APP_UID` user supplied by the
+.NET runtime image. `EXPOSE 70` is image metadata only: it does not publish a
+host port or open a host or provider firewall. The configured
+`Gopher:ListenAddress` must accept container traffic when the server should be
+reachable outside the container.
+
+If the guestbook is enabled, mount `Guestbook:DataPath` on writable persistent
+storage. A minimal Compose configuration is:
+
+```yaml
+services:
+  happygopher:
+    build: .
+    ports:
+      - "70:70"
+    volumes:
+      - ./data:/app/data
+    environment:
+      Gopher__ListenAddress: "::"
+      Gopher__DualMode: "true"
+      Gopher__PublicHost: "gopher.example.com"
+      Guestbook__Enabled: "true"
+```
+
+Double underscores are the standard .NET environment-variable separator for
+nested configuration keys. The mounted host directory must be writable by the
+container user.
+
+Binding HappyGopher to `::` with `DualMode=true` creates one application socket
+that accepts native IPv6 and IPv4-mapped connections. This is the recommended
+application configuration, but it does not guarantee that every Docker host
+publishes port 70 through both address families.
+
+Host reachability also depends on Docker Engine versus Docker Desktop, host
+IPv6 availability, daemon and default-bind settings, whether the userland proxy
+is enabled, IPv4-only versus IPv6-enabled bridge networks, NAT versus routed
+gateway modes, explicit host-address bindings in Compose, and host and provider
+firewall policy. Some configurations proxy host IPv6 traffic to a container's
+IPv4 address, so a native container IPv6 address is not always required for
+ordinary published-port forwarding. That proxy behavior is not universal,
+especially when the userland proxy is disabled.
+
+Docker userland proxying can also make many external clients appear to
+HappyGopher as the same bridge gateway or proxy address. Using a Docker gateway
+such as `172.21.0.1` as the sole telemetry-ignore identity can therefore hide
+legitimate traffic, including IPv6 clients proxied into an IPv4-only bridge.
+Prefer the dedicated `/healthz` selector. When a monitor is known to arrive
+from the gateway address, use the combined rule:
+
+```yaml
+environment:
+  Gopher__ListenAddress: "::"
+  Gopher__DualMode: "true"
+  Gopher__TelemetryIgnoredRemoteAddress: "172.21.0.1"
+  Gopher__TelemetryIgnoredSelectors__0: "/healthz"
+```
+
+With both settings configured, only `/healthz` requests observed from
+`172.21.0.1` are ignored. Normal selectors seen from that proxy address still
+publish telemetry. To exclude the health selector from every source, use the
+simpler configuration:
+
+```yaml
+environment:
+  Gopher__TelemetryIgnoredSelectors__0: "/healthz"
+```
+
+Use an IPv6-enabled Compose network when the container needs native IPv6
+addressing, direct or routed IPv6 connectivity, outbound native IPv6, or
+behavior that does not rely on Docker's proxying. Explicitly disabling IPv6 in
+the container is incompatible with binding HappyGopher to `::`. Independently
+allow inbound TCP port 70 over IPv4 and IPv6 in the host and VPS-provider
+firewalls, and publish both DNS `A` and `AAAA` records for dual-family clients.
+
+Verify the effective port mapping and test both families from an external
+client instead of assuming the Compose configuration guarantees them:
+
+```text
+docker port <container-name> 70/tcp
+curl -4 gopher://gopher.example.com/
+curl -6 gopher://gopher.example.com/
+```
+
+Command availability and Gopher protocol support depend on the installed
+client; `nc -4` and `nc -6` are alternatives where available.
 
 ## Installing as a Windows Service
 
-First publish the application to a permanent location, such as:
+For Windows Service installation, publish a Windows app host to a permanent
+location, such as:
+
+```powershell
+dotnet publish .\HappyGopher\HappyGopher.csproj `
+    --configuration Release `
+    --runtime win-x64 `
+    --self-contained false `
+    --output C:\Services\HappyGopher
+```
+
+The example output directory is:
 
 ```text
 C:\Services\HappyGopher
@@ -398,7 +700,8 @@ That said, this is an early-stage project. Before exposing it publicly:
 * Serve only files intended for public access.
 * Review your firewall and router configuration.
 * Avoid placing secrets anywhere inside the content directory.
-* Run the service under a restricted Windows account where practical.
+* Run the process under a restricted operating-system account where practical.
+* Treat an enabled guestbook as untrusted public input and monitor its storage.
 
 Gopher does not provide encryption. Traffic, selectors, and downloaded content are sent in plaintext.
 
@@ -409,18 +712,18 @@ Gopher does not provide encryption. Traffic, selectors, and downloaded content a
 * Dynamic routing supports exact selectors only; prefix, wildcard, and
   parameterized routes are not supported
 * No CGI or arbitrary scripting
-* No Gopher search handlers or search routes
 * No authentication or access control
 * No TLS support
 * Gopher traffic is plaintext
 * No administrative interface
+* No guestbook moderation system
 * No official packaged releases yet
-* Primarily developed and tested for Windows
 
 ## Project Structure
 
 ```text
 HappyGopher.slnx
+├── Dockerfile
 ├── HappyGopher/
 │   ├── Events/
 │   │   ├── GopherServiceStartedEvent.cs
@@ -429,12 +732,26 @@ HappyGopher.slnx
 │   ├── Gopher/
 │   │   ├── GopherConnectionHandler.cs
 │   │   ├── GopherContentStore.cs
+│   │   ├── GopherRequest.cs
 │   │   ├── GopherResponseWriter.cs
-│   │   └── GopherResponseKind.cs
+│   │   ├── GopherResponseKind.cs
+│   │   └── GopherSessionResult.cs
+│   ├── Integrations/
+│   │   └── HappyQotd/
 │   ├── Pages/
 │   │   ├── IGopherPage.cs
 │   │   ├── GopherPageResolver.cs
-│   │   └── ExampleServerTimePage.cs
+│   │   ├── HealthPage.cs
+│   │   ├── ServerTimePage.cs
+│   │   ├── QuoteOfTheDayPage.cs
+│   │   ├── RandomQuotePage.cs
+│   │   └── Guestbook/
+│   │       ├── FileGuestbookStore.cs
+│   │       ├── SignGuestbookPage.cs
+│   │       └── ViewGuestbookPage.cs
+│   ├── Telemetry/
+│   │   ├── TelemetryService.cs
+│   │   └── TelemetrySuppressionDecision.cs
 │   ├── Program.cs
 │   ├── HappyGopher.csproj
 │   ├── appsettings.json
@@ -442,6 +759,7 @@ HappyGopher.slnx
 ├── HappyGopher.Tests/
 │   ├── GopherPageResolverTests.cs
 │   ├── GopherResponseWriterTests.cs
+│   ├── HealthPageTests.cs
 │   └── ServerTimePageTests.cs
 └── LICENSE
 ```

@@ -15,14 +15,15 @@ internal static class GopherSelectorReader
         encoderShouldEmitUTF8Identifier: false,
         throwOnInvalidBytes: false);
 
-    public static async Task<string?> ReadAsync(
+    public static async Task<GopherRequest?> ReadAsync(
         Stream stream,
         int maxSelectorBytes,
+        int maxInputBytes,
         int requestTimeoutSeconds,
         CancellationToken stoppingToken)
     {
-        // Two extra bytes allow an exact-length selector followed by CRLF.
-        int capacity = checked(maxSelectorBytes + 2);
+        // A tab plus CRLF may follow exact-length selector and input portions.
+        int capacity = checked(maxSelectorBytes + maxInputBytes + 3);
         byte[] buffer = ArrayPool<byte>.Shared.Rent(capacity);
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
@@ -36,7 +37,7 @@ internal static class GopherSelectorReader
                 int remainingCapacity = capacity - count;
                 if (remainingCapacity == 0)
                 {
-                    throw CreateTooLongException(maxSelectorBytes);
+                    throw new InvalidOperationException("The request buffer was exhausted without detecting an exceeded limit.");
                 }
 
                 int bytesRead = await stream.ReadAsync(
@@ -50,45 +51,35 @@ internal static class GopherSelectorReader
                         return null;
                     }
 
-                    if (count > maxSelectorBytes)
-                    {
-                        throw CreateTooLongException(maxSelectorBytes);
-                    }
-
-                    return DecodeSelector(buffer, count);
+                    return ParseRequest(
+                        buffer,
+                        count,
+                        maxSelectorBytes,
+                        maxInputBytes);
                 }
 
-                ReadOnlySpan<byte> received = buffer.AsSpan(count, bytesRead);
-                int newlineOffset = received.IndexOf((byte)'\n');
+                count += bytesRead;
+                int newlineOffset = buffer.AsSpan(0, count).IndexOf((byte)'\n');
 
                 if (newlineOffset >= 0)
                 {
-                    int lineLength = count + newlineOffset;
+                    int lineLength = newlineOffset;
                     if (lineLength > 0 && buffer[lineLength - 1] == (byte)'\r')
                     {
                         lineLength--;
                     }
 
-                    if (lineLength > maxSelectorBytes)
-                    {
-                        throw CreateTooLongException(maxSelectorBytes);
-                    }
-
-                    return DecodeSelector(buffer, lineLength);
+                    return ParseRequest(
+                        buffer,
+                        lineLength,
+                        maxSelectorBytes,
+                        maxInputBytes);
                 }
 
-                count += bytesRead;
-                if (count > maxSelectorBytes)
-                {
-                    bool awaitingLfAfterCr =
-                        count == maxSelectorBytes + 1 &&
-                        buffer[count - 1] == (byte)'\r';
-
-                    if (!awaitingLfAfterCr)
-                    {
-                        throw CreateTooLongException(maxSelectorBytes);
-                    }
-                }
+                ThrowIfPartialRequestExceedsLimits(
+                    buffer.AsSpan(0, count),
+                    maxSelectorBytes,
+                    maxInputBytes);
             }
         }
         finally
@@ -97,10 +88,99 @@ internal static class GopherSelectorReader
         }
     }
 
-    private static InvalidDataException CreateTooLongException(
+    private static void ThrowIfPartialRequestExceedsLimits(
+        ReadOnlySpan<byte> request,
+        int maxSelectorBytes,
+        int maxInputBytes)
+    {
+        int tabIndex = request.IndexOf((byte)'\t');
+        if (tabIndex < 0)
+        {
+            ValidatePartialPortion(
+                request,
+                maxSelectorBytes,
+                CreateSelectorTooLongException);
+
+            return;
+        }
+
+        if (tabIndex > maxSelectorBytes)
+        {
+            throw CreateSelectorTooLongException(maxSelectorBytes);
+        }
+
+        ValidatePartialPortion(
+            request[(tabIndex + 1)..],
+            maxInputBytes,
+            CreateInputTooLongException);
+    }
+
+    private static void ValidatePartialPortion(
+        ReadOnlySpan<byte> portion,
+        int maxBytes,
+        Func<int, InvalidDataException> createException)
+    {
+        if (portion.Length <= maxBytes)
+        {
+            return;
+        }
+
+        bool awaitingLfAfterCr =
+            portion.Length == maxBytes + 1 &&
+            portion[^1] == (byte)'\r';
+
+        if (!awaitingLfAfterCr)
+        {
+            throw createException(maxBytes);
+        }
+    }
+
+    private static GopherRequest ParseRequest(
+        byte[] buffer,
+        int lineLength,
+        int maxSelectorBytes,
+        int maxInputBytes)
+    {
+        ReadOnlySpan<byte> request = buffer.AsSpan(0, lineLength);
+        int tabIndex = request.IndexOf((byte)'\t');
+
+        int selectorLength =
+            tabIndex >= 0
+                ? tabIndex
+                : lineLength;
+
+        if (selectorLength > maxSelectorBytes)
+        {
+            throw CreateSelectorTooLongException(maxSelectorBytes);
+        }
+
+        string selector =
+            SelectorEncoding.GetString(buffer, 0, selectorLength);
+
+        if (tabIndex < 0)
+        {
+            return new GopherRequest(selector, Input: null);
+        }
+
+        int inputLength = lineLength - tabIndex - 1;
+        if (inputLength > maxInputBytes)
+        {
+            throw CreateInputTooLongException(maxInputBytes);
+        }
+
+        string input = SelectorEncoding.GetString(
+            buffer,
+            tabIndex + 1,
+            inputLength);
+
+        return new GopherRequest(selector, input);
+    }
+
+    private static InvalidDataException CreateSelectorTooLongException(
         int maxSelectorBytes) =>
         new($"Selector exceeded the {maxSelectorBytes} byte limit.");
 
-    private static string DecodeSelector(byte[] buffer, int length) =>
-        SelectorEncoding.GetString(buffer, 0, length);
+    private static InvalidDataException CreateInputTooLongException(
+        int maxInputBytes) =>
+        new($"Input exceeded the {maxInputBytes} byte limit.");
 }

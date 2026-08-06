@@ -18,6 +18,11 @@ FROM mcr.microsoft.com/dotnet/runtime:10.0
 WORKDIR /app
 COPY --from=build /app/publish .
 
+RUN mkdir -p /app/data \
+    && chown -R $APP_UID /app/data
+
 EXPOSE 70
+
+USER $APP_UID
 
 ENTRYPOINT ["dotnet", "HappyGopher.dll"]

@@ -105,6 +105,7 @@ public sealed class GopherPageResolverTests
         public string Selector { get; } = selector;
 
         public Task<GopherResponseKind> WriteAsync(
+            GopherRequest request,
             Stream output,
             CancellationToken cancellationToken) =>
             Task.FromResult(GopherResponseKind.Text);

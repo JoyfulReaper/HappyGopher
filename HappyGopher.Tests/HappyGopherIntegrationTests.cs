@@ -7,16 +7,20 @@
 using HappyGopher.Events;
 using HappyGopher.Gopher;
 using HappyGopher.Pages;
+using HappyGopher.Pages.Guestbook;
+using HappyGopher.Telemetry;
 using JoyfulReaperLib.MissionControl;
 using JoyfulReaperLib.TcpServer;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json.Serialization.Metadata;
+using Xunit.Sdk;
 
 namespace HappyGopher.Tests;
 
@@ -244,6 +248,86 @@ public sealed class HappyGopherIntegrationTests
     }
 
     [Fact]
+    public async Task Server_DualModeRespondsThroughIPv4AndIPv6AndFormatsStartupTelemetry()
+    {
+        await RequireDualStackLoopbackCapabilityAsync();
+
+        RecordingMissionControlClient recording = new();
+
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(
+                missionControlClient: recording,
+                listenAddress: "::",
+                dualMode: true);
+
+        server.Content.WriteText("dual-stack.txt", "Dual stack response");
+
+        string ipv4Response = await server.RequestAsync(
+            "/dual-stack.txt",
+            IPAddress.Loopback);
+        string ipv6Response = await server.RequestAsync(
+            "/dual-stack.txt",
+            IPAddress.IPv6Loopback);
+
+        Assert.Equal("Dual stack response\r\n.\r\n", ipv4Response);
+        Assert.Equal(ipv4Response, ipv6Response);
+
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
+        await recording.WaitForPublishedEventCountAsync(
+            GopherServiceStartedEvent.EventName,
+            1,
+            timeout.Token);
+
+        RecordedMissionControlEvent telemetry = Assert.Single(
+            recording.PublishedEvents,
+            publishedEvent =>
+                publishedEvent.EventType ==
+                GopherServiceStartedEvent.EventName);
+        GopherServiceStartedEvent payload =
+            Assert.IsType<GopherServiceStartedEvent>(telemetry.Payload);
+
+        Assert.Equal($"[::]:{server.Port}", payload.ListenAddress);
+        Assert.DoesNotContain(":::", payload.ListenAddress);
+    }
+
+    [Fact]
+    public async Task Server_DualModePublishesTelemetryForIPv6AfterClose()
+    {
+        await RequireDualStackLoopbackCapabilityAsync();
+
+        RecordingMissionControlClient recording = new();
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(
+                missionControlClient: recording,
+                listenAddress: "::",
+                dualMode: true);
+        server.Content.WriteText("about.txt", "About over IPv6");
+
+        string response = await server.RequestAsync(
+            "/about.txt",
+            IPAddress.IPv6Loopback);
+
+        Assert.Equal("About over IPv6\r\n.\r\n", response);
+
+        using CancellationTokenSource timeout =
+            new(TimeSpan.FromSeconds(5));
+        await recording.WaitForPublishedEventCountAsync(
+            SelectorServedEventName,
+            1,
+            timeout.Token);
+
+        RecordedMissionControlEvent telemetry = Assert.Single(
+            recording.PublishedEvents,
+            publishedEvent =>
+                publishedEvent.EventType == SelectorServedEventName);
+        SelectorServedEvent payload =
+            Assert.IsType<SelectorServedEvent>(telemetry.Payload);
+
+        Assert.Equal("/about.txt", payload.Selector);
+        Assert.Matches(@"^\[::1\]:\d+$", payload.Remote);
+    }
+
+    [Fact]
     public async Task Server_PublishesDynamicPageResponseKindTelemetry()
     {
         RecordingMissionControlClient recording = new();
@@ -346,6 +430,46 @@ public sealed class HappyGopherIntegrationTests
         Assert.Equal(
             "Dynamic page\r\n.\r\n",
             response);
+
+        GopherRequest request =
+            Assert.IsType<GopherRequest>(page.LastRequest);
+
+        Assert.Equal(
+            "/dynamic/test.txt",
+            request.Selector);
+
+        Assert.Null(request.Input);
+    }
+
+    [Fact]
+    public async Task Server_PassesType7InputToDynamicPage()
+    {
+        TestGopherPage page = new(
+            selector: "/guestbook/add",
+            response: "Saved\r\n.\r\n");
+
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(
+                pages: new IGopherPage[] { page });
+
+        string response =
+            await server.RequestAsync(
+                "/guestbook/add\tHello from Gopher");
+
+        Assert.Equal(
+            "Saved\r\n.\r\n",
+            response);
+
+        GopherRequest request =
+            Assert.IsType<GopherRequest>(page.LastRequest);
+
+        Assert.Equal(
+            "/guestbook/add",
+            request.Selector);
+
+        Assert.Equal(
+            "Hello from Gopher",
+            request.Input);
     }
 
     [Fact]
@@ -371,18 +495,48 @@ public sealed class HappyGopherIntegrationTests
             "iRoot\tfake\t(NULL)\t0\r\n.\r\n",
             response);
 
-        using CancellationTokenSource timeout =
-            new(TimeSpan.FromSeconds(5));
-
-        await Task.Delay(
-            TimeSpan.FromMilliseconds(250),
-            timeout.Token);
-
         Assert.DoesNotContain(
             recording.PublishedEvents,
             publishedEvent =>
                 publishedEvent.EventType ==
                 SelectorServedEventName);
+    }
+
+    [Fact]
+    public async Task Server_CombinedIgnoreRuleSuppressesOnlyMatchingSelectorAndAddress()
+    {
+        RecordingMissionControlClient recording = new();
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(
+                missionControlClient: recording,
+                telemetryIgnoredRemoteAddress:
+                    IPAddress.Loopback.ToString(),
+                telemetryIgnoredSelectors: ["/healthz"]);
+        server.Content.WriteText("about.txt", "About");
+
+        string normalResponse =
+            await server.RequestAsync("/about.txt");
+
+        Assert.Equal("About\r\n.\r\n", normalResponse);
+
+        using CancellationTokenSource timeout =
+            new(TimeSpan.FromSeconds(5));
+        await recording.WaitForPublishedEventCountAsync(
+            SelectorServedEventName,
+            1,
+            timeout.Token);
+
+        string healthResponse = await server.RequestAsync("/healthz");
+
+        Assert.Equal("OK\r\n.\r\n", healthResponse);
+
+        RecordedMissionControlEvent telemetry = Assert.Single(
+            recording.PublishedEvents,
+            publishedEvent =>
+                publishedEvent.EventType == SelectorServedEventName);
+        SelectorServedEvent payload =
+            Assert.IsType<SelectorServedEvent>(telemetry.Payload);
+        Assert.Equal("/about.txt", payload.Selector);
     }
 
     [Fact]
@@ -528,6 +682,175 @@ public sealed class HappyGopherIntegrationTests
         string response = await server.RequestAsync("/about.txt");
 
         Assert.Equal("About\r\n.\r\n", response);
+    }
+
+    [Fact]
+    public async Task Server_ServesExtensionlessAsciiFileAsText()
+    {
+        RecordingMissionControlClient recording = new();
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(recording);
+        server.Content.WriteText("readme", "First line\n.hidden");
+
+        (byte[] response, string responseType) =
+            await RequestWithResponseTypeAsync(
+                server,
+                recording,
+                "/readme");
+
+        Assert.Equal("text", responseType);
+        Assert.Equal(
+            WireEncoding.GetBytes("First line\r\n..hidden\r\n.\r\n"),
+            response);
+    }
+
+    [Fact]
+    public async Task Server_ServesExtensionlessUtf8FileAsText()
+    {
+        RecordingMissionControlClient recording = new();
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(recording);
+        server.Content.WriteText("welcome", "Héllo\n世界");
+
+        (byte[] response, string responseType) =
+            await RequestWithResponseTypeAsync(
+                server,
+                recording,
+                "/welcome");
+
+        Assert.Equal("text", responseType);
+        Assert.Equal(
+            WireEncoding.GetBytes("Héllo\r\n世界\r\n.\r\n"),
+            response);
+    }
+
+    [Fact]
+    public async Task Server_ServesExtensionlessFileContainingNulAsBinary()
+    {
+        RecordingMissionControlClient recording = new();
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(recording);
+        byte[] contents = [0x41, 0x00, 0x42, 0x0D, 0x0A, 0x2E];
+        server.Content.WriteBytes("nul-data", contents);
+
+        (byte[] response, string responseType) =
+            await RequestWithResponseTypeAsync(
+                server,
+                recording,
+                "/nul-data");
+
+        Assert.Equal("binary", responseType);
+        Assert.Equal(contents, response);
+    }
+
+    [Fact]
+    public async Task Server_ServesExtensionlessFileContainingControlByteAsBinary()
+    {
+        RecordingMissionControlClient recording = new();
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(recording);
+        byte[] contents = [0x41, 0x01, 0x42, 0x0D, 0x0A, 0x2E];
+        server.Content.WriteBytes("control-data", contents);
+
+        (byte[] response, string responseType) =
+            await RequestWithResponseTypeAsync(
+                server,
+                recording,
+                "/control-data");
+
+        Assert.Equal("binary", responseType);
+        Assert.Equal(contents, response);
+    }
+
+    [Fact]
+    public async Task Server_AllowsCrLfAndTabInExtensionlessTextFile()
+    {
+        RecordingMissionControlClient recording = new();
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(recording);
+        server.Content.WriteBytes(
+            "whitespace",
+            WireEncoding.GetBytes(
+                "first\rsecond\nthird\tvalue\r\nfourth"));
+
+        (byte[] response, string responseType) =
+            await RequestWithResponseTypeAsync(
+                server,
+                recording,
+                "/whitespace");
+
+        Assert.Equal("text", responseType);
+        Assert.Equal(
+            WireEncoding.GetBytes(
+                "first\r\nsecond\r\nthird\tvalue\r\nfourth\r\n.\r\n"),
+            response);
+    }
+
+    [Fact]
+    public async Task Server_ServesKnownTextExtensionAsText()
+    {
+        RecordingMissionControlClient recording = new();
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(recording);
+        server.Content.WriteText("known.txt", "Known text");
+
+        (byte[] response, string responseType) =
+            await RequestWithResponseTypeAsync(
+                server,
+                recording,
+                "/known.txt");
+
+        Assert.Equal("text", responseType);
+        Assert.Equal(
+            WireEncoding.GetBytes("Known text\r\n.\r\n"),
+            response);
+    }
+
+    [Fact]
+    public async Task Server_ServesUnknownNamedExtensionAsBinaryWhenContentsLookTextual()
+    {
+        RecordingMissionControlClient recording = new();
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(recording);
+        byte[] contents = WireEncoding.GetBytes("Looks like text\r\n.");
+        server.Content.WriteBytes("unknown.custom", contents);
+
+        (byte[] response, string responseType) =
+            await RequestWithResponseTypeAsync(
+                server,
+                recording,
+                "/unknown.custom");
+
+        Assert.Equal("binary", responseType);
+        Assert.Equal(contents, response);
+    }
+
+    [Fact]
+    public async Task Server_GeneratedMenuAdvertisesExtensionlessTextFileAsTypeZero()
+    {
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync();
+        server.Content.WriteText("readme", "Read me");
+
+        string response = await server.RequestAsync(string.Empty);
+
+        Assert.Contains(
+            $"0readme\t/readme\t127.0.0.1\t{server.Port}\r\n",
+            response);
+    }
+
+    [Fact]
+    public async Task Server_GeneratedMenuAdvertisesExtensionlessBinaryFileAsTypeNine()
+    {
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync();
+        server.Content.WriteBytes("payload", [0x41, 0x00, 0x42]);
+
+        string response = await server.RequestAsync(string.Empty);
+
+        Assert.Contains(
+            $"9payload\t/payload\t127.0.0.1\t{server.Port}\r\n",
+            response);
     }
 
     [Fact]
@@ -731,6 +1054,34 @@ public sealed class HappyGopherIntegrationTests
         Assert.Equal(1, blocking.CanceledCount);
     }
 
+    private static async Task<(byte[] Response, string ResponseType)>
+        RequestWithResponseTypeAsync(
+            TestGopherServer server,
+            RecordingMissionControlClient recording,
+            string selector)
+    {
+        byte[] response = await server.RequestBytesAsync(selector);
+
+        using CancellationTokenSource timeout =
+            new(TimeSpan.FromSeconds(5));
+        await recording.WaitForPublishedEventCountAsync(
+            SelectorServedEventName,
+            1,
+            timeout.Token);
+
+        RecordedMissionControlEvent telemetry = Assert.Single(
+            recording.PublishedEvents,
+            publishedEvent =>
+                publishedEvent.EventType == SelectorServedEventName);
+        SelectorServedEvent payload =
+            Assert.IsType<SelectorServedEvent>(telemetry.Payload);
+
+        Assert.Equal(selector, payload.Selector);
+        Assert.True(payload.Succeeded);
+
+        return (response, payload.ResponseType);
+    }
+
     [Fact]
     public async Task Server_DoesNotLeakConnectionSlotAfterClientDisconnect()
     {
@@ -760,6 +1111,94 @@ public sealed class HappyGopherIntegrationTests
         await server.StopAsync(timeout.Token);
     }
 
+    [Fact]
+    public async Task Server_GuestbookTypeSevenRequestStoresOnceSuppressesReplayAndDisplaysEntry()
+    {
+        using TemporaryDirectory temporaryDirectory = new();
+        GuestbookOptions guestbookOptions = new()
+        {
+            Enabled = true,
+            DataPath = temporaryDirectory.GetPath("guestbook.jsonl"),
+            MaxEntriesDisplayed = 25
+        };
+        FileGuestbookStore guestbookStore = new(
+            Options.Create(guestbookOptions),
+            NullLogger<FileGuestbookStore>.Instance,
+            TimeProvider.System);
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(
+                guestbookStore: guestbookStore,
+                guestbookOptions: guestbookOptions);
+        const string request =
+            "guestbook/sign\tKyle | integration test";
+
+        string firstResponse = await server.RequestAsync(request);
+        IReadOnlyList<GuestbookEntry> entriesAfterFirstRequest =
+            await guestbookStore.GetEntriesAsync(take: 10);
+
+        string replayResponse = await server.RequestAsync(request);
+        IReadOnlyList<GuestbookEntry> entriesAfterReplay =
+            await guestbookStore.GetEntriesAsync(take: 10);
+        string viewResponse = await server.RequestAsync("guestbook");
+
+        GuestbookEntry entry = Assert.Single(entriesAfterFirstRequest);
+        Assert.Equal("Kyle", entry.Name);
+        Assert.Equal("integration test", entry.Message);
+        Assert.Single(entriesAfterReplay);
+        Assert.EndsWith(".\r\n", firstResponse);
+        Assert.EndsWith(".\r\n", replayResponse);
+        Assert.Contains("iKyle\tfake\t(NULL)\t0\r\n", viewResponse);
+        Assert.Contains(
+            "i  integration test\tfake\t(NULL)\t0\r\n",
+            viewResponse);
+        Assert.EndsWith(".\r\n", viewResponse);
+    }
+
+    private static async Task RequireDualStackLoopbackCapabilityAsync()
+    {
+        TcpListener? listener = null;
+
+        try
+        {
+            listener = new TcpListener(IPAddress.IPv6Any, 0);
+            listener.Server.DualMode = true;
+            listener.Start();
+
+            int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+
+            using (var ipv4Client = new TcpClient(AddressFamily.InterNetwork))
+            {
+                await ipv4Client.ConnectAsync(IPAddress.Loopback, port);
+                using TcpClient acceptedIpv4 = await listener.AcceptTcpClientAsync();
+            }
+
+            using (var ipv6Client = new TcpClient(AddressFamily.InterNetworkV6))
+            {
+                await ipv6Client.ConnectAsync(IPAddress.IPv6Loopback, port);
+                using TcpClient acceptedIpv6 = await listener.AcceptTcpClientAsync();
+            }
+        }
+        catch (PlatformNotSupportedException exception)
+        {
+            throw SkipException.ForSkip(
+                $"Dual-stack IPv4/IPv6 loopback connectivity is unavailable: {exception.Message}");
+        }
+        catch (NotSupportedException exception)
+        {
+            throw SkipException.ForSkip(
+                $"Dual-stack IPv4/IPv6 loopback connectivity is unavailable: {exception.Message}");
+        }
+        catch (SocketException exception)
+        {
+            throw SkipException.ForSkip(
+                $"Dual-stack IPv4/IPv6 loopback connectivity is unavailable: {exception.Message}");
+        }
+        finally
+        {
+            listener?.Stop();
+        }
+    }
+
     private sealed class TestGopherServer : IAsyncDisposable
     {
         private readonly IHost _host;
@@ -784,21 +1223,39 @@ public sealed class HappyGopherIntegrationTests
         public static async Task<TestGopherServer> StartAsync(
             IMissionControlClient? missionControlClient = null,
             string? telemetryIgnoredRemoteAddress = null,
+            string[]? telemetryIgnoredSelectors = null,
             int maxConcurrentConnections = 64,
-            IEnumerable<IGopherPage>? pages = null)
+            IEnumerable<IGopherPage>? pages = null,
+            IGuestbookStore? guestbookStore = null,
+            GuestbookOptions? guestbookOptions = null,
+            string? listenAddress = null,
+            bool dualMode = false)
         {
+            if ((guestbookStore is null) != (guestbookOptions is null))
+            {
+                throw new ArgumentException(
+                    "The guestbook store and options must be provided together.");
+            }
+
             TestContentStore content = new();
-            int port = GetAvailablePort();
+            IPAddress parsedListenAddress = IPAddress.Parse(
+                listenAddress ?? "127.0.0.1");
+            int port = GetAvailablePort(parsedListenAddress, dualMode);
             HappyGopherOptions options = new()
             {
-                ListenAddress = "127.0.0.1",
+                ListenAddress = parsedListenAddress.ToString(),
+                DualMode = dualMode,
                 PublicHost = "127.0.0.1",
                 Port = port,
                 ContentRoot = content.Root,
                 MaxConcurrentConnections = maxConcurrentConnections,
+                MaxSelectorBytes = 4096,
+                MaxInputBytes = 1024,
                 RequestTimeoutSeconds = 5,
                 TelemetryIgnoredRemoteAddress =
-                    telemetryIgnoredRemoteAddress
+                    telemetryIgnoredRemoteAddress,
+                TelemetryIgnoredSelectors =
+                    telemetryIgnoredSelectors ?? []
             };
             IGopherPage[] registeredPages = pages?.ToArray() ?? [];
 
@@ -822,14 +1279,30 @@ public sealed class HappyGopherIntegrationTests
                         {
                             services.AddSingleton<IGopherPage>(page);
                         }
+
+                        services.AddScoped<IGopherPage, HealthPage>();
+
+                        if (guestbookStore is not null &&
+                            guestbookOptions is not null)
+                        {
+                            services.AddSingleton<IGuestbookStore>(guestbookStore);
+                            services.AddSingleton<IOptions<GuestbookOptions>>(
+                                Options.Create(guestbookOptions));
+                            services.AddScoped<IGopherPage, ViewGuestbookPage>();
+                            services.AddScoped<IGopherPage, SignGuestbookPage>();
+                        }
+
                         services.AddSingleton(missionControlClient);
-                        services.AddSingleton<IOptions<HappyGopherOptions>>(
-                            Options.Create(options));
+                        services.AddSingleton<IOptions<MissionControlClientOptions>>(
+                            Options.Create(new MissionControlClientOptions
+                            {
+                                Enabled = true
+                            }));
+                        services.AddSingleton<IOptions<HappyGopherOptions>>(Options.Create(options));
                         services.AddSingleton<GopherContentStore>();
+                        services.AddSingleton<TelemetryService>();
                         services.AddScoped<GopherPageResolver>();
-                        services.AddTcpServer<
-                            GopherConnectionHandler,
-                            HappyGopherOptions>();
+                        services.AddTcpServer<GopherConnectionHandler, HappyGopherOptions>();
                         services.AddHostedService<GopherLifecycleService>();
                     })
                     .Build();
@@ -859,11 +1332,25 @@ public sealed class HappyGopherIntegrationTests
             }
         }
 
-        public async Task<string> RequestAsync(string selector)
+        public Task<string> RequestAsync(string selector) =>
+            RequestAsync(selector, IPAddress.Loopback);
+
+        public async Task<string> RequestAsync(
+            string selector,
+            IPAddress address) =>
+            WireEncoding.GetString(
+                await RequestBytesAsync(selector, address));
+
+        public Task<byte[]> RequestBytesAsync(string selector) =>
+            RequestBytesAsync(selector, IPAddress.Loopback);
+
+        public async Task<byte[]> RequestBytesAsync(
+            string selector,
+            IPAddress address)
         {
-            using TcpClient client = new();
+            using TcpClient client = new(address.AddressFamily);
             using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
-            await client.ConnectAsync(IPAddress.Loopback, Port, timeout.Token);
+            await client.ConnectAsync(address, Port, timeout.Token);
 
             await using NetworkStream stream = client.GetStream();
             byte[] request = WireEncoding.GetBytes(selector + "\r\n");
@@ -883,7 +1370,7 @@ public sealed class HappyGopherIntegrationTests
                 response.Write(buffer, 0, read);
             }
 
-            return WireEncoding.GetString(response.ToArray());
+            return response.ToArray();
         }
 
         public async Task StopAsync(CancellationToken cancellationToken)
@@ -918,9 +1405,16 @@ public sealed class HappyGopherIntegrationTests
             }
         }
 
-        private static int GetAvailablePort()
+        private static int GetAvailablePort(
+            IPAddress listenAddress,
+            bool dualMode)
         {
-            TcpListener listener = new(IPAddress.Loopback, 0);
+            TcpListener listener = new(listenAddress, 0);
+            if (listenAddress.AddressFamily == AddressFamily.InterNetworkV6)
+            {
+                listener.Server.DualMode = dualMode;
+            }
+
             listener.Start();
             int port = ((IPEndPoint)listener.LocalEndpoint).Port;
             listener.Stop();
