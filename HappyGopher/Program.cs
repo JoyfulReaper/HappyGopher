@@ -8,6 +8,7 @@ using HappyGopher.Gopher;
 using HappyGopher.Integrations.HappyQotd;
 using HappyGopher.Pages;
 using HappyGopher.Pages.Guestbook;
+using HappyGopher.Plugins;
 using HappyGopher.Telemetry;
 using JoyfulReaperLib.MissionControl;
 using JoyfulReaperLib.TcpServer;
@@ -54,6 +55,9 @@ GuestbookServiceCollectionExtensions.AddGuestbookPages(builder.Services, builder
 
 // Discover compiled pages in this assembly.
 builder.Services.AddGopherPagesFromAssemblyContaining<ServerTimePage>();
+
+// Discover and load external page plugins.
+builder.Services.AddGopherPlugins(builder.Configuration);
 
 var host = builder.Build();
 host.Run();

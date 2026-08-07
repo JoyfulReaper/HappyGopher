@@ -1,0 +1,4 @@
+{
+  "id": "HappyGopher.Tests.TestPlugin",
+  "entryAssembly": "HappyGopher.TestPlugin.dll"
+}

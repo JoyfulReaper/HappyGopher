@@ -5,7 +5,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
-	<EnableDynamicLoading>true</EnableDynamicLoading>
   </PropertyGroup>
 
   <ItemGroup>
@@ -30,10 +29,7 @@
 		<TestPluginFiles Include="..\HappyGopher.TestPlugin\bin\$(Configuration)\net10.0\**\*" />
 	</ItemGroup>
 
-	<Copy
-		SourceFiles="@(TestPluginFiles)"
-		DestinationFiles="@(TestPluginFiles->'$(OutDir)TestPlugin\%(RecursiveDir)%(Filename)%(Extension)')"
-		SkipUnchangedFiles="true" />
+	<Copy SourceFiles="@(TestPluginFiles)" DestinationFiles="@(TestPluginFiles->'$(OutDir)TestPlugin\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
 </Target>
 
 </Project>
