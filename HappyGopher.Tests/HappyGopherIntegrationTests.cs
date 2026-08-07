@@ -1155,6 +1155,58 @@ public sealed class HappyGopherIntegrationTests
         Assert.EndsWith(".\r\n", viewResponse);
     }
 
+    [Fact]
+    public async Task Server_PassesConnectionEndpointsToDynamicPage()
+    {
+        await RequireDualStackLoopbackCapabilityAsync();
+
+        TestGopherPage page = new(
+            selector: "/capture",
+            response: "OK\r\n.\r\n");
+
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(
+                pages: new IGopherPage[] { page },
+                listenAddress: "::",
+                dualMode: true);
+
+        string response = await server.RequestAsync(
+            "/capture",
+            IPAddress.IPv6Loopback);
+
+        Assert.Equal(
+            "OK\r\n.\r\n",
+            response);
+
+        GopherRequest request =
+            Assert.IsType<GopherRequest>(
+                page.LastRequest);
+
+        IPEndPoint remote =
+            Assert.IsType<IPEndPoint>(
+                request.RemoteEndPoint);
+
+        IPEndPoint local =
+            Assert.IsType<IPEndPoint>(
+                request.LocalEndPoint);
+
+        Assert.Equal(
+            IPAddress.IPv6Loopback,
+            remote.Address);
+
+        Assert.Equal(
+            IPAddress.IPv6Loopback,
+            local.Address);
+
+        Assert.Equal(
+            server.Port,
+            local.Port);
+
+        Assert.NotEqual(
+            server.Port,
+            remote.Port);
+    }
+
     private static async Task RequireDualStackLoopbackCapabilityAsync()
     {
         TcpListener? listener = null;

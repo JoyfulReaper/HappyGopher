@@ -30,6 +30,7 @@ public sealed class GopherConnectionHandler(
             context.ConnectionId,
             context.Stream,
             context.RemoteEndPoint,
+            context.LocalEndPoint,
             cancellationToken);
 
         if (result is null)
@@ -50,6 +51,7 @@ public sealed class GopherConnectionHandler(
         long connectionId,
         Stream stream,
         EndPoint? remote,
+        EndPoint? local,
         CancellationToken cancellationToken)
     {
         DateTimeOffset occurredAt = DateTimeOffset.UtcNow;
@@ -75,6 +77,12 @@ public sealed class GopherConnectionHandler(
             {
                 return null;
             }
+
+            request = request with
+            {
+                RemoteEndPoint = remote as IPEndPoint,
+                LocalEndPoint = local as IPEndPoint
+            };
 
             selector = request.Selector;
 
