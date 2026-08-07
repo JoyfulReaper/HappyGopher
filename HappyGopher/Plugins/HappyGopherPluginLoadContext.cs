@@ -20,10 +20,8 @@ internal sealed class HappyGopherPluginLoadContext : AssemblyLoadContext
     private readonly AssemblyDependencyResolver _resolver;
 
     public HappyGopherPluginLoadContext(GopherPluginDescriptor plugin)
-        : base(name: $"HappyGopher.Plugin:{plugin.Id}", isCollectible: false)
+        : base(name: GetContextName(plugin), isCollectible: false)
     {
-        ArgumentNullException.ThrowIfNull(plugin);
-
         _resolver = new AssemblyDependencyResolver(plugin.EntryAssemblyPath);
     }
 
@@ -58,5 +56,12 @@ internal sealed class HappyGopherPluginLoadContext : AssemblyLoadContext
         }
 
         return LoadUnmanagedDllFromPath(libraryPath);
+    }
+
+    private static string GetContextName(GopherPluginDescriptor plugin)
+    {
+        ArgumentNullException.ThrowIfNull(plugin);
+
+        return $"HappyGopher.Plugin:{plugin.Id}";
     }
 }

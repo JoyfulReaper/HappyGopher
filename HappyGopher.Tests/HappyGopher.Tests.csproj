@@ -5,6 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+	<EnableDynamicLoading>true</EnableDynamicLoading>
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,11 +17,23 @@
 
   <ItemGroup>
     <ProjectReference Include="..\HappyGopher.Extensibility\HappyGopher.Extensibility.csproj" />
+    <ProjectReference Include="..\HappyGopher.TestPlugin\HappyGopher.TestPlugin.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\HappyGopher\HappyGopher.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
+
+<Target Name="CopyTestPlugin" AfterTargets="Build">
+	<ItemGroup>
+		<TestPluginFiles Include="..\HappyGopher.TestPlugin\bin\$(Configuration)\net10.0\**\*" />
+	</ItemGroup>
+
+	<Copy
+		SourceFiles="@(TestPluginFiles)"
+		DestinationFiles="@(TestPluginFiles->'$(OutDir)TestPlugin\%(RecursiveDir)%(Filename)%(Extension)')"
+		SkipUnchangedFiles="true" />
+</Target>
 
 </Project>
