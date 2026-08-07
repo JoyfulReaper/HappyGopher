@@ -7,7 +7,7 @@
 using System.Globalization;
 using System.Text;
 
-namespace HappyGopher.Gopher;
+namespace HappyGopher.Extensibility;
 
 /// <summary>
 /// Writes correctly formatted text and menu responses to a Gopher connection.

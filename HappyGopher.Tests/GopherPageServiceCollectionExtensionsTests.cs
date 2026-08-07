@@ -4,7 +4,7 @@
  * Licensed under the MIT License.
  */
 
-using HappyGopher.Abstractions;
+using HappyGopher.Extensibility;
 using HappyGopher.Pages;
 using Microsoft.Extensions.DependencyInjection;
 

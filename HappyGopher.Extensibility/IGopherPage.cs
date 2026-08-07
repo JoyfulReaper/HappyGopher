@@ -4,7 +4,7 @@
  * Licensed under the MIT License.
  */
 
-namespace HappyGopher.Abstractions;
+namespace HappyGopher.Extensibility;
 
 /// <summary>
 /// Represents a dynamic Gopher resource registered for an exact selector.

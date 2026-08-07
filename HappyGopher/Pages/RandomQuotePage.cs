@@ -4,7 +4,7 @@
  * Licensed under the MIT License.
  */
 
-using HappyGopher.Abstractions;
+using HappyGopher.Extensibility;
 using HappyGopher.Gopher;
 using HappyGopher.Integrations.HappyQotd;
 using System.Text.Json;

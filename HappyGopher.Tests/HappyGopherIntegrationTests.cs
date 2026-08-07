@@ -4,8 +4,8 @@
  * Licensed under the MIT License.
  */
 
-using HappyGopher.Abstractions;
 using HappyGopher.Events;
+using HappyGopher.Extensibility;
 using HappyGopher.Gopher;
 using HappyGopher.Pages;
 using HappyGopher.Pages.Guestbook;

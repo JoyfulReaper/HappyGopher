@@ -4,7 +4,7 @@
  * Licensed under the MIT License.
  */
 
-namespace HappyGopher.Gopher;
+namespace HappyGopher.Extensibility;
 
 internal static class GopherMenuFields
 {

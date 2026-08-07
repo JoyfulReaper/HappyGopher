@@ -4,7 +4,7 @@
  * Licensed under the MIT License.
  */
 
-namespace HappyGopher.Abstractions;
+namespace HappyGopher.Extensibility;
 
 /// <summary>
 /// Represents one Gopher request line.

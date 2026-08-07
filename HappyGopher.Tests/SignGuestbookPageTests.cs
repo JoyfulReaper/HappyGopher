@@ -1,4 +1,4 @@
-using HappyGopher.Abstractions;
+using HappyGopher.Extensibility;
 using HappyGopher.Gopher;
 using HappyGopher.Pages.Guestbook;
 using Microsoft.Extensions.Options;
