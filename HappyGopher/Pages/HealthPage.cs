@@ -11,6 +11,7 @@ namespace HappyGopher.Pages;
 /// <summary>
 /// Provides a stable operational health response without external dependencies.
 /// </summary>
+[AutoRegisterGopherPage]
 public sealed class HealthPage : IGopherPage
 {
     public const string PageSelector = "/healthz";

@@ -12,6 +12,7 @@ namespace HappyGopher.Pages;
 /// <summary>
 /// Displays the current server time in UTC.
 /// </summary>
+[AutoRegisterGopherPage]
 public sealed class ServerTimePage(TimeProvider timeProvider) : IGopherPage
 {
     private bool enabled = true; // TODO: Make this configurable.

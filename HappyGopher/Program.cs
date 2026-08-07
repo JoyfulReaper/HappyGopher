@@ -46,15 +46,14 @@ builder.Services.AddScoped<GopherPageResolver>();
 builder.Services.AddTcpServer<GopherConnectionHandler, HappyGopherOptions>();
 builder.Services.AddHostedService<GopherLifecycleService>();
 
-// Currently all pages must be registered here.
-builder.Services.AddScoped<IGopherPage, ServerTimePage>();
-builder.Services.AddScoped<IGopherPage, HealthPage>();
-
 // QOTD integration
 builder.Services.AddHappyQotd(builder.Configuration);
 
 // Guestbook integration
 GuestbookServiceCollectionExtensions.AddGuestbookPages(builder.Services, builder.Configuration);
+
+// Discover compiled pages in this assembly.
+builder.Services.AddGopherPagesFromAssemblyContaining<ServerTimePage>();
 
 var host = builder.Build();
 host.Run();
