@@ -45,6 +45,7 @@ builder.Services.AddSingleton<GopherContentStore>();
 builder.Services.AddSingleton<TelemetryService>();
 builder.Services.AddScoped<GopherPageResolver>();
 builder.Services.AddTcpServer<GopherConnectionHandler, HappyGopherOptions>();
+builder.Services.AddHostedService<GopherPageStartupValidator>();
 builder.Services.AddHostedService<GopherLifecycleService>();
 
 // QOTD integration
