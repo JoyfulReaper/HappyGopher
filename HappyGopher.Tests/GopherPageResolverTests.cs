@@ -4,7 +4,7 @@
  * Licensed under the MIT License.
  */
 
-using HappyGopher.Gopher;
+using HappyGopher.Abstractions;
 using HappyGopher.Pages;
 
 namespace HappyGopher.Tests;

@@ -15,6 +15,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\HappyGopher.Abstractions\HappyGopher.Abstractions.csproj" />
     <ProjectReference Include="..\HappyGopher\HappyGopher.csproj" />
   </ItemGroup>
 

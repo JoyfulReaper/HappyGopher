@@ -4,7 +4,7 @@
  * Licensed under the MIT License.
  */
 
-namespace HappyGopher.Pages;
+namespace HappyGopher.Abstractions;
 
 /// <summary>
 /// Marks an <see cref="IGopherPage"/> implementation for automatic

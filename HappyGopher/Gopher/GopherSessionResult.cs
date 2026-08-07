@@ -4,6 +4,8 @@
  * Licensed under the MIT License.
  */
 
+using HappyGopher.Abstractions;
+
 namespace HappyGopher.Gopher;
 
 internal sealed record GopherSessionResult(
