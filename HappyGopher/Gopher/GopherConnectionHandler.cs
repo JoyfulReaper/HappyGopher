@@ -63,6 +63,7 @@ public sealed class GopherConnectionHandler(
         bool responseCompleted = false;
         TelemetrySuppressionDecision suppressionDecision =
             TelemetrySuppressionDecision.NotSuppressed;
+        CancellationTokenSource? responseTimeout = null;
 
         try
         {
@@ -77,6 +78,14 @@ public sealed class GopherConnectionHandler(
             {
                 return null;
             }
+
+            responseTimeout =
+                CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken);
+            responseTimeout.CancelAfter(
+                TimeSpan.FromSeconds(
+                    options.Value.ResponseTimeoutSeconds));
+            CancellationToken responseToken = responseTimeout.Token;
 
             request = request with
             {
@@ -103,11 +112,12 @@ public sealed class GopherConnectionHandler(
                 ? await gopherContentStore.WriteResponseAsync(
                     selector,
                     stream,
-                    cancellationToken)
+                    responseToken)
                 : await page.WriteAsync(
                     request,
                     stream,
-                    cancellationToken);
+                    responseToken);
+            responseToken.ThrowIfCancellationRequested();
             responseCompleted = true;
         }
         catch (OperationCanceledException)
@@ -115,6 +125,14 @@ public sealed class GopherConnectionHandler(
         {
             logger.LogDebug(
                 "Connection {ConnectionId} from {Remote} was canceled during shutdown.",
+                connectionId,
+                remote);
+        }
+        catch (OperationCanceledException)
+            when (responseTimeout?.IsCancellationRequested == true)
+        {
+            logger.LogWarning(
+                "Response processing on connection {ConnectionId} from {Remote} timed out.",
                 connectionId,
                 remote);
         }
@@ -159,6 +177,7 @@ public sealed class GopherConnectionHandler(
         }
         finally
         {
+            responseTimeout?.Dispose();
             stopwatch.Stop();
         }
 

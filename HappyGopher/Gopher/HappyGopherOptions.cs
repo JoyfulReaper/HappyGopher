@@ -20,6 +20,7 @@ public sealed class HappyGopherOptions : ITcpServerOptions
     public int MaxSelectorBytes { get; set; } = 4096;
     public int MaxInputBytes { get; set; } = 1024;
     public int RequestTimeoutSeconds { get; set; } = 15;
+    public int ResponseTimeoutSeconds { get; set; } = 60;
 
     /// <summary>
     /// Gets or sets the remote IP address used to suppress selector telemetry.

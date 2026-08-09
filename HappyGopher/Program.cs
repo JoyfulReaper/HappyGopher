@@ -32,6 +32,7 @@ builder.Services
     .Validate(options => options.MaxSelectorBytes is >= 64 and <= 65536, "Gopher:MaxSelectorBytes must be between 64 and 65536.")
     .Validate(options => options.MaxInputBytes is >= 1 and <= 65536, "Gopher:MaxInputBytes must be between 1 and 65536.")
     .Validate(options => options.RequestTimeoutSeconds > 0, "Gopher:RequestTimeoutSeconds must be positive.")
+    .ValidateResponseTimeout()
     .Validate(options => !string.IsNullOrWhiteSpace(options.ContentRoot), "Gopher:ContentRoot must not be empty.")
     .Validate(options => !string.IsNullOrWhiteSpace(options.PublicHost), "Gopher:PublicHost must not be empty.")
     .ValidateOnStart();
