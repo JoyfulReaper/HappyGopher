@@ -4,6 +4,8 @@
  * Licensed under the MIT License.
  */
 
+using HappyGopher.Pages;
+
 namespace HappyGopher.Tests;
 
 public sealed class GopherContentStoreTests
@@ -34,6 +36,89 @@ public sealed class GopherContentStoreTests
         string response = await test.GetResponseAsync(string.Empty);
 
         Assert.Contains("iRoot menu\tfake\t(NULL)\t0\r\n", response);
+    }
+
+    [Fact]
+    public async Task WriteResponseAsync_SlashSelectorResolvesToContentRoot()
+    {
+        using TestContentStore test = new();
+        test.WriteText("gophermap", "iRoot menu");
+
+        string response = await test.GetResponseAsync("/");
+
+        Assert.Contains("iRoot menu\tfake\t(NULL)\t0\r\n", response);
+    }
+
+    [Theory]
+    [InlineData("file.txt")]
+    [InlineData("/file.txt")]
+    public async Task WriteResponseAsync_AcceptsOptionalSingleLeadingSlash(
+        string selector)
+    {
+        using TestContentStore test = new();
+        test.WriteText("file.txt", "Static file");
+
+        string response = await test.GetResponseAsync(selector);
+
+        Assert.Equal("Static file\r\n.\r\n", response);
+    }
+
+    [Theory]
+    [InlineData("//file.txt")]
+    [InlineData("\\file.txt")]
+    [InlineData("/foo\\bar")]
+    [InlineData("/./file.txt")]
+    [InlineData("/foo/./bar")]
+    [InlineData("/x/../file.txt")]
+    [InlineData("../file.txt")]
+    [InlineData("foo/../file.txt")]
+    [InlineData("/foo//bar")]
+    [InlineData("/foo/bar/")]
+    public async Task WriteResponseAsync_RejectsNoncanonicalStaticSelector(
+        string selector)
+    {
+        using TestContentStore test = new();
+        test.WriteText("file.txt", "Static file");
+
+        string response = await test.GetResponseAsync(selector);
+
+        AssertSingleError(response, "Invalid Selector.");
+        Assert.DoesNotContain("Static file", response);
+    }
+
+    [Theory]
+    [InlineData("/file..txt")]
+    [InlineData("/foo.bar")]
+    [InlineData("/.well-known")]
+    public async Task WriteResponseAsync_AcceptsOrdinaryDotsInFileName(
+        string selector)
+    {
+        using TestContentStore test = new();
+        test.WriteText(selector[1..], "Dotted file");
+
+        string response = await test.GetResponseAsync(selector);
+
+        Assert.Contains("Dotted file", response);
+        Assert.DoesNotContain("3Invalid Selector.", response);
+        Assert.DoesNotContain("3Selector not found.", response);
+    }
+
+    [Fact]
+    public async Task WriteResponseAsync_DynamicAliasMissCannotReachStaticFile()
+    {
+        using TestContentStore test = new();
+        test.WriteText("healthz", "Static health response");
+        TestGopherPage page = new(
+            selector: "/healthz",
+            response: "Dynamic health response\r\n.\r\n");
+        GopherPageResolver resolver = new([page]);
+
+        Assert.Null(resolver.Resolve("//healthz"));
+
+        string response = await test.GetResponseAsync("//healthz");
+
+        AssertSingleError(response, "Invalid Selector.");
+        Assert.DoesNotContain("Static health response", response);
     }
 
     [Fact]
@@ -180,6 +265,23 @@ public sealed class GopherContentStoreTests
         Assert.Contains("gimage.gif\t/image.gif\tgopher.test\t7070", response);
         Assert.Contains("Iimage.png\t/image.png\tgopher.test\t7070", response);
         Assert.Contains("9archive.bin\t/archive.bin\tgopher.test\t7070", response);
+    }
+
+    [Fact]
+    public async Task WriteResponseAsync_GeneratedDirectorySelectorsRemainUsable()
+    {
+        using TestContentStore test = new();
+        test.WriteText("docs/readme.txt", "Generated selector target");
+
+        string rootResponse = await test.GetResponseAsync(string.Empty);
+        string directoryResponse = await test.GetResponseAsync("/docs");
+        string fileResponse = await test.GetResponseAsync("/docs/readme.txt");
+
+        Assert.Contains("1docs/\t/docs\tgopher.test\t7070\r\n", rootResponse);
+        Assert.Contains(
+            "0readme.txt\t/docs/readme.txt\tgopher.test\t7070\r\n",
+            directoryResponse);
+        Assert.Equal("Generated selector target\r\n.\r\n", fileResponse);
     }
 
     [Fact]
