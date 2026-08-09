@@ -77,6 +77,22 @@ public sealed class GopherResponseWriter : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(selector);
         ArgumentNullException.ThrowIfNull(host);
 
+        if (type is < '!' or > '~' || type == '.')
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(type),
+                type,
+                "A Gopher item type must be a printable, non-whitespace ASCII character other than '.'.");
+        }
+
+        if (port is < 0 or > 65535 || port == 0 && type != 'i')
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(port),
+                port,
+                "A Gopher menu item port must be between 1 and 65535, except informational items may use port 0.");
+        }
+
         ThrowIfCompleted();
 
         string line = string.Concat(type,

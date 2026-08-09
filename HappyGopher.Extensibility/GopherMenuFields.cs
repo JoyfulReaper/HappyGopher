@@ -11,5 +11,6 @@ internal static class GopherMenuFields
     public static string Sanitize(string value) =>
         value.Replace('\t', ' ')
             .Replace('\r', ' ')
-            .Replace('\n', ' ');
+            .Replace('\n', ' ')
+            .Replace('\0', ' ');
 }
