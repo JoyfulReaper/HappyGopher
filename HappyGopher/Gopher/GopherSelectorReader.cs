@@ -14,7 +14,10 @@ internal static class GopherSelectorReader
 {
     private static readonly Encoding SelectorEncoding = new UTF8Encoding(
         encoderShouldEmitUTF8Identifier: false,
-        throwOnInvalidBytes: false);
+        throwOnInvalidBytes: true);
+
+    private const string MalformedRequestMessage =
+        "The request contained malformed data.";
 
     public static async Task<GopherRequest?> ReadAsync(
         Stream stream,
@@ -143,6 +146,12 @@ internal static class GopherSelectorReader
         int maxInputBytes)
     {
         ReadOnlySpan<byte> request = buffer.AsSpan(0, lineLength);
+
+        if (request.Contains((byte)'\0') || request.Contains((byte)'\r'))
+        {
+            throw new InvalidDataException(MalformedRequestMessage);
+        }
+
         int tabIndex = request.IndexOf((byte)'\t');
 
         int selectorLength =
@@ -155,8 +164,7 @@ internal static class GopherSelectorReader
             throw CreateSelectorTooLongException(maxSelectorBytes);
         }
 
-        string selector =
-            SelectorEncoding.GetString(buffer, 0, selectorLength);
+        string selector = DecodeUtf8(request[..selectorLength]);
 
         if (tabIndex < 0)
         {
@@ -169,12 +177,23 @@ internal static class GopherSelectorReader
             throw CreateInputTooLongException(maxInputBytes);
         }
 
-        string input = SelectorEncoding.GetString(
-            buffer,
-            tabIndex + 1,
-            inputLength);
+        string input = DecodeUtf8(request[(tabIndex + 1)..]);
 
         return new GopherRequest(selector, input);
+    }
+
+    private static string DecodeUtf8(ReadOnlySpan<byte> value)
+    {
+        try
+        {
+            return SelectorEncoding.GetString(value);
+        }
+        catch (DecoderFallbackException exception)
+        {
+            throw new InvalidDataException(
+                MalformedRequestMessage,
+                exception);
+        }
     }
 
     private static InvalidDataException CreateSelectorTooLongException(
