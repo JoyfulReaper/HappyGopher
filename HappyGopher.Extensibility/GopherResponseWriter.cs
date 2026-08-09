@@ -42,6 +42,14 @@ public sealed class GopherResponseWriter : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(line);
+
+        if (line.Contains('\r') || line.Contains('\n'))
+        {
+            throw new ArgumentException(
+                "A Gopher text line cannot contain carriage return or line feed characters.",
+                nameof(line));
+        }
+
         ThrowIfCompleted();
 
         if (line.StartsWith('.'))

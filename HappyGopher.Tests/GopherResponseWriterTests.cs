@@ -12,19 +12,87 @@ namespace HappyGopher.Tests;
 public sealed class GopherResponseWriterTests
 {
     [Fact]
-    public async Task WriteTextLineAsync_UsesCrlfDotStuffingAndTerminator()
+    public async Task WriteTextLineAsync_OrdinaryLineUsesCrlf()
     {
         await using MemoryStream output = new();
 
         await using (GopherResponseWriter writer = new(output))
         {
             await writer.WriteTextLineAsync("Hello");
-            await writer.WriteTextLineAsync(".hidden");
+        }
+
+        Assert.Equal(
+            "Hello\r\n",
+            Encoding.UTF8.GetString(output.ToArray()));
+    }
+
+    [Fact]
+    public async Task WriteTextLineAsync_EmptyLineIsValid()
+    {
+        await using MemoryStream output = new();
+
+        await using (GopherResponseWriter writer = new(output))
+        {
+            await writer.WriteTextLineAsync(string.Empty);
+        }
+
+        Assert.Equal(
+            "\r\n",
+            Encoding.UTF8.GetString(output.ToArray()));
+    }
+
+    [Theory]
+    [InlineData(".hello", "..hello\r\n")]
+    [InlineData(".", "..\r\n")]
+    public async Task WriteTextLineAsync_DotStuffsLine(
+        string line,
+        string expected)
+    {
+        await using MemoryStream output = new();
+
+        await using (GopherResponseWriter writer = new(output))
+        {
+            await writer.WriteTextLineAsync(line);
+        }
+
+        Assert.Equal(
+            expected,
+            Encoding.UTF8.GetString(output.ToArray()));
+    }
+
+    [Theory]
+    [InlineData("hello\rhidden")]
+    [InlineData("hello\nhidden")]
+    [InlineData("hello\r\nhidden")]
+    public async Task WriteTextLineAsync_RejectsEmbeddedLineEndings(
+        string line)
+    {
+        await using MemoryStream output = new();
+        await using GopherResponseWriter writer = new(output);
+
+        ArgumentException exception =
+            await Assert.ThrowsAsync<ArgumentException>(
+                () => writer.WriteTextLineAsync(line));
+
+        Assert.Equal("line", exception.ParamName);
+    }
+
+    [Fact]
+    public async Task WriteTextLineAsync_RejectedLineDoesNotPreventValidWrite()
+    {
+        await using MemoryStream output = new();
+
+        await using (GopherResponseWriter writer = new(output))
+        {
+            await Assert.ThrowsAsync<ArgumentException>(
+                () => writer.WriteTextLineAsync("hello\r\n.\r\nhidden"));
+
+            await writer.WriteTextLineAsync("Hello");
             await writer.CompleteAsync();
         }
 
         Assert.Equal(
-            "Hello\r\n..hidden\r\n.\r\n",
+            "Hello\r\n.\r\n",
             Encoding.UTF8.GetString(output.ToArray()));
     }
 
