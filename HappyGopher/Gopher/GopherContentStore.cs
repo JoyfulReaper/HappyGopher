@@ -4,6 +4,7 @@
  * Licensed under the MIT License.
  */
 
+using HappyGopher.Extensibility;
 using Microsoft.Extensions.Options;
 using System.Text;
 
@@ -346,9 +347,10 @@ public sealed class GopherContentStore
 
     private string? ResolveSelector(string selector)
     {
-        string relative = selector
-            .Replace('\\', '/')
-            .TrimStart('/');
+        if (!TryGetRelativeSelector(selector, out string relative))
+        {
+            return null;
+        }
 
         if (relative.Contains(':'))
             return null;
@@ -380,6 +382,39 @@ public sealed class GopherContentStore
         }
 
         return candidate;
+    }
+
+    private static bool TryGetRelativeSelector(
+        string selector,
+        out string relative)
+    {
+        relative = string.Empty;
+
+        if (selector.Length == 0 || selector == "/")
+        {
+            return true;
+        }
+
+        if (selector.Contains('\\') ||
+            selector.StartsWith("//", StringComparison.Ordinal) ||
+            selector.EndsWith('/'))
+        {
+            return false;
+        }
+
+        relative = selector.StartsWith('/')
+            ? selector[1..]
+            : selector;
+
+        foreach (string segment in relative.Split('/'))
+        {
+            if (segment.Length == 0 || segment is "." or "..")
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private bool ContainsReparsePoint(string candidate) =>

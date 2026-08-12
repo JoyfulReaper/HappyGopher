@@ -8,6 +8,7 @@ using HappyGopher.Gopher;
 using HappyGopher.Integrations.HappyQotd;
 using HappyGopher.Pages;
 using HappyGopher.Pages.Guestbook;
+using HappyGopher.Plugins;
 using HappyGopher.Telemetry;
 using JoyfulReaperLib.MissionControl;
 using JoyfulReaperLib.TcpServer;
@@ -31,6 +32,7 @@ builder.Services
     .Validate(options => options.MaxSelectorBytes is >= 64 and <= 65536, "Gopher:MaxSelectorBytes must be between 64 and 65536.")
     .Validate(options => options.MaxInputBytes is >= 1 and <= 65536, "Gopher:MaxInputBytes must be between 1 and 65536.")
     .Validate(options => options.RequestTimeoutSeconds > 0, "Gopher:RequestTimeoutSeconds must be positive.")
+    .ValidateResponseTimeout()
     .Validate(options => !string.IsNullOrWhiteSpace(options.ContentRoot), "Gopher:ContentRoot must not be empty.")
     .Validate(options => !string.IsNullOrWhiteSpace(options.PublicHost), "Gopher:PublicHost must not be empty.")
     .ValidateOnStart();
@@ -44,17 +46,20 @@ builder.Services.AddSingleton<GopherContentStore>();
 builder.Services.AddSingleton<TelemetryService>();
 builder.Services.AddScoped<GopherPageResolver>();
 builder.Services.AddTcpServer<GopherConnectionHandler, HappyGopherOptions>();
+builder.Services.AddHostedService<GopherPageStartupValidator>();
 builder.Services.AddHostedService<GopherLifecycleService>();
-
-// Currently all pages must be registered here.
-builder.Services.AddScoped<IGopherPage, ServerTimePage>();
-builder.Services.AddScoped<IGopherPage, HealthPage>();
 
 // QOTD integration
 builder.Services.AddHappyQotd(builder.Configuration);
 
 // Guestbook integration
 GuestbookServiceCollectionExtensions.AddGuestbookPages(builder.Services, builder.Configuration);
+
+// Discover compiled pages in this assembly.
+builder.Services.AddGopherPagesFromAssemblyContaining<ServerTimePage>();
+
+// Discover and load external page plugins.
+builder.Services.AddGopherPlugins(builder.Configuration);
 
 var host = builder.Build();
 host.Run();

@@ -1,3 +1,4 @@
+using HappyGopher.Extensibility;
 using HappyGopher.Pages;
 using Microsoft.Extensions.Options;
 

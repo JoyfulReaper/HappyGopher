@@ -1,4 +1,4 @@
-using HappyGopher.Gopher;
+using HappyGopher.Extensibility;
 using HappyGopher.Integrations.HappyQotd;
 using HappyGopher.Pages;
 using Microsoft.Extensions.Logging;

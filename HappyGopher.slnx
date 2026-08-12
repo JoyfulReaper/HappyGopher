@@ -1,4 +1,6 @@
 <Solution>
-  <Project Path="HappyGopher/HappyGopher.csproj" />
+  <Project Path="HappyGopher.Extensibility/HappyGopher.Extensibility.csproj" Id="e14057bf-ab78-4fee-b995-7e0e8d4a0ff7" />
+  <Project Path="HappyGopher.TestPlugin/HappyGopher.TestPlugin.csproj" Id="92812122-bed7-4b9d-8327-3bb73594ce5d" />
   <Project Path="HappyGopher.Tests/HappyGopher.Tests.csproj" />
+  <Project Path="HappyGopher/HappyGopher.csproj" />
 </Solution>

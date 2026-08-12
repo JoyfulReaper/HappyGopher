@@ -4,6 +4,7 @@
  * Licensed under the MIT License.
  */
 
+using HappyGopher.Extensibility;
 using HappyGopher.Gopher;
 using System.Net;
 using System.Net.Sockets;
@@ -21,11 +22,166 @@ public sealed class GopherSelectorReaderTests
     public async Task ReadAsync_ReturnsSelectorWithoutInput()
     {
         GopherRequest? request =
-            await ReadFromBytesAsync("/about\r\n");
+            await ReadFromRawBytesAsync(
+                (byte)'/',
+                (byte)'a',
+                (byte)'b',
+                (byte)'o',
+                (byte)'u',
+                (byte)'t',
+                (byte)'\r',
+                (byte)'\n');
 
         Assert.NotNull(request);
         Assert.Equal("/about", request.Selector);
         Assert.Null(request.Input);
+    }
+
+    [Fact]
+    public async Task ReadAsync_AcceptsNonAsciiUtf8Selector()
+    {
+        GopherRequest? request = await ReadFromRawBytesAsync(
+            WireEncoding.GetBytes("/café\r\n"));
+
+        Assert.NotNull(request);
+        Assert.Equal("/café", request.Selector);
+        Assert.Null(request.Input);
+    }
+
+    [Fact]
+    public async Task ReadAsync_AcceptsNonAsciiUtf8Input()
+    {
+        GopherRequest? request = await ReadFromRawBytesAsync(
+            WireEncoding.GetBytes("/search\t世界\r\n"));
+
+        Assert.NotNull(request);
+        Assert.Equal("/search", request.Selector);
+        Assert.Equal("世界", request.Input);
+    }
+
+    [Fact]
+    public async Task ReadAsync_RejectsMalformedUtf8InSelector()
+    {
+        byte[] request =
+        [
+            (byte)'/',
+            0xC3,
+            (byte)'(',
+            (byte)'\r',
+            (byte)'\n'
+        ];
+
+        InvalidDataException exception =
+            await Assert.ThrowsAsync<InvalidDataException>(
+                () => ReadFromRawBytesAsync(request));
+
+        Assert.IsType<DecoderFallbackException>(exception.InnerException);
+    }
+
+    [Fact]
+    public async Task ReadAsync_RejectsMalformedUtf8InInput()
+    {
+        byte[] request =
+        [
+            .. WireEncoding.GetBytes("/search\t"),
+            0xE2,
+            (byte)'(',
+            0xA1,
+            (byte)'\r',
+            (byte)'\n'
+        ];
+
+        InvalidDataException exception =
+            await Assert.ThrowsAsync<InvalidDataException>(
+                () => ReadFromRawBytesAsync(request));
+
+        Assert.IsType<DecoderFallbackException>(exception.InnerException);
+    }
+
+    [Fact]
+    public async Task ReadAsync_RejectsTruncatedUtf8Sequence()
+    {
+        byte[] request = [(byte)'/', 0xE2, 0x82];
+
+        InvalidDataException exception =
+            await Assert.ThrowsAsync<InvalidDataException>(
+                () => ReadFromRawBytesAsync(request));
+
+        Assert.IsType<DecoderFallbackException>(exception.InnerException);
+    }
+
+    [Fact]
+    public async Task ReadAsync_RejectsBytesPreviouslyDecodedAsReplacementCharacter()
+    {
+        byte[] request =
+        [
+            (byte)'/',
+            0xFF,
+            (byte)'\r',
+            (byte)'\n'
+        ];
+
+        await Assert.ThrowsAsync<InvalidDataException>(
+            () => ReadFromRawBytesAsync(request));
+    }
+
+    [Fact]
+    public async Task ReadAsync_AcceptsEncodedReplacementCharacter()
+    {
+        GopherRequest? request = await ReadFromRawBytesAsync(
+            WireEncoding.GetBytes("/�\r\n"));
+
+        Assert.NotNull(request);
+        Assert.Equal("/�", request.Selector);
+    }
+
+    [Theory]
+    [MemberData(nameof(RequestsContainingNul))]
+    public async Task ReadAsync_RejectsEmbeddedNul(byte[] request)
+    {
+        await Assert.ThrowsAsync<InvalidDataException>(
+            () => ReadFromRawBytesAsync(request));
+    }
+
+    public static TheoryData<byte[]> RequestsContainingNul =>
+        new()
+        {
+            new byte[]
+            {
+                (byte)'/',
+                (byte)'f',
+                0,
+                (byte)'o',
+                (byte)'o',
+                (byte)'\r',
+                (byte)'\n'
+            },
+            WireEncoding.GetBytes("/search\tfoo\0bar\r\n")
+        };
+
+    [Theory]
+    [MemberData(nameof(RequestsContainingEmbeddedCr))]
+    public async Task ReadAsync_RejectsEmbeddedCarriageReturn(byte[] request)
+    {
+        await Assert.ThrowsAsync<InvalidDataException>(
+            () => ReadFromRawBytesAsync(request));
+    }
+
+    public static TheoryData<byte[]> RequestsContainingEmbeddedCr =>
+        new()
+        {
+            WireEncoding.GetBytes("/foo\rbar\r\n"),
+            WireEncoding.GetBytes("/search\tfoo\rbar\r\n")
+        };
+
+    [Fact]
+    public async Task ReadAsync_AcceptsFinalCarriageReturnInCrlfRequest()
+    {
+        GopherRequest? request = await ReadFromRawBytesAsync(
+            WireEncoding.GetBytes("/foo\r\n"));
+
+        Assert.NotNull(request);
+        Assert.Equal("/foo", request.Selector);
     }
 
     [Fact]
@@ -229,8 +385,12 @@ public sealed class GopherSelectorReaderTests
 
     private static Task<GopherRequest?> ReadFromBytesAsync(
         string value) =>
+        ReadFromRawBytesAsync(WireEncoding.GetBytes(value));
+
+    private static Task<GopherRequest?> ReadFromRawBytesAsync(
+        params byte[] value) =>
         GopherSelectorReader.ReadAsync(
-            new MemoryStream(WireEncoding.GetBytes(value)),
+            new MemoryStream(value),
             MaxSelectorBytes,
             MaxInputBytes,
             requestTimeoutSeconds: 5,

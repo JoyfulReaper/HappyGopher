@@ -128,6 +128,9 @@ The default configuration resembles:
     "MaxInputBytes": 1024,
     "RequestTimeoutSeconds": 15
   },
+  "GopherPages": {
+    "PluginDirectory": "plugins"
+  },
   "MissionControl": {
     "Enabled": false,
     "BaseUrl": "http://localhost:5190",
@@ -173,6 +176,15 @@ The default configuration resembles:
 | `BaseUrl`             | `http://localhost:5190` | Mission Control service base URL.                |
 | `ApiKey`              |                    empty | API key sent to Mission Control.                  |
 | `TimeoutMilliseconds` |                   `1000` | Mission Control client timeout in milliseconds.  |
+
+#### Gopher Pages
+
+| Setting           |   Default | Description                                      |
+| ----------------- | --------: | ------------------------------------------------ |
+| `PluginDirectory` | `plugins` | Directory containing external Gopher page plugins. |
+
+Relative plugin directory paths are resolved from the application base
+directory (`AppContext.BaseDirectory`); absolute paths are used directly.
 
 #### HappyQOTD
 
@@ -301,6 +313,10 @@ identifies the one exact selector handled by the page, and `WriteAsync` writes
 the response and returns its `GopherResponseKind`. That response kind is used
 by the normal selector telemetry.
 
+Page-author-facing contracts and helpers live in `HappyGopher.Extensibility`:
+`IGopherPage`, `GopherRequest`, `GopherResponseKind`,
+`AutoRegisterGopherPageAttribute`, and `GopherResponseWriter`.
+
 HappyGopher resolves dynamic pages before checking filesystem content. A
 dynamic page therefore overrides a static resource at the same selector.
 Selectors without a matching page fall back to `GopherContentStore` and the
@@ -323,6 +339,9 @@ items, informational lines, and errors. It handles CRLF line endings, menu
 field sanitization, dot-stuffing, and response termination.
 
 ```csharp
+using HappyGopher.Extensibility;
+
+[AutoRegisterGopherPage]
 public sealed class ExamplePage : IGopherPage
 {
     public string Selector => "/example";
@@ -348,25 +367,74 @@ public sealed class ExamplePage : IGopherPage
 The output stream is owned by the server and page implementations must not
 close it. `GopherResponseWriter` leaves the stream open.
 
-Pages currently require explicit dependency-injection registration in
-`Program.cs`:
+Page discovery is opt-in at both the type and assembly levels. The shared
+scanner registers concrete public `IGopherPage` implementations marked with
+`[AutoRegisterGopherPage]`. It scans only assemblies explicitly supplied to
+`AddGopherPagesFromAssemblies` or
+`AddGopherPagesFromAssemblyContaining<TMarker>`; HappyGopher does not scan every
+loaded assembly automatically. `Program.cs` explicitly supplies the built-in
+HappyGopher assembly through:
 
 ```csharp
-builder.Services.AddScoped<IGopherPage, ExamplePage>();
+builder.Services.AddGopherPagesFromAssemblyContaining<ServerTimePage>();
 ```
 
 The core example uses selector `/server-time`, returns a text response
 containing the current UTC server time, and is implemented by `ServerTimePage`
 in `HappyGopher/Pages/ServerTimePage.cs`. The always-registered `/healthz` page
 returns the terminated text response `OK`; it is an operational selector and is
-not added to the default root `gophermap`. The HappyQOTD and guestbook pages are
-additional examples of compiled dynamic pages. The sample root `gophermap`
-links to the server-time page but does not advertise operational or optional
-pages.
+not added to the default root `gophermap`. The sample root `gophermap` links to
+the server-time page but does not advertise operational or optional pages.
 
-Runtime DLL scanning and plugin-folder loading are planned but are not
-implemented. HappyGopher does not currently discover page assemblies
-automatically.
+External page plugins are discovered at startup from the configured
+`GopherPages:PluginDirectory`, which defaults to `plugins`. Each immediate
+child directory represents one plugin and must contain a
+`happygopher.plugin.json` manifest. Directories without that manifest are
+ignored. For example:
+
+```text
+plugins/
+└── mystery/
+    ├── happygopher.plugin.json
+    ├── HappyGopher.CustomPages.dll
+    ├── HappyGopher.CustomPages.deps.json
+    └── other plugin dependencies
+```
+
+The manifest identifies the plugin and its entry assembly:
+
+```json
+{
+  "id": "JoyfulReaper.MysteryPages",
+  "entryAssembly": "HappyGopher.CustomPages.dll"
+}
+```
+
+The `id` must be non-empty and unique across discovered plugins; ID comparison
+is case-insensitive. `entryAssembly` is resolved relative to that plugin's
+directory and must remain inside it. A declared entry assembly that does not
+exist causes startup plugin registration to fail.
+
+Build the entry assembly against `HappyGopher.Extensibility`, place its publish
+output and manifest together in one plugin child directory, and ensure its
+public concrete `IGopherPage` classes use `[AutoRegisterGopherPage]`. HappyGopher
+loads the entry assembly and passes it through the same scanner used for
+built-in pages, so plugin pages join the same dynamic-page system. Restart the
+server after adding or replacing a plugin.
+
+Each plugin is loaded into its own `AssemblyLoadContext`.
+`AssemblyDependencyResolver` resolves plugin-private managed and native
+dependencies, while `HappyGopher.Extensibility` is shared with the host. This
+ensures plugin page types implement the same runtime `IGopherPage` contract used
+by HappyGopher.
+
+> Plugins are trusted .NET code loaded into the HappyGopher process. Assembly
+> load contexts provide dependency isolation, not a security sandbox.
+
+Optional integrations remain explicitly registered through their
+feature-specific service extensions: `AddHappyQotd` for HappyQOTD and
+`AddGuestbookPages` for the guestbook. These pages are not attribute-discovered
+because their registration depends on configuration and supporting services.
 
 ## Guestbook
 
@@ -532,9 +600,7 @@ dotnet publish .\HappyGopher\HappyGopher.csproj `
 ```
 
 HappyGopher intentionally uses a framework-dependent .NET deployment rather
-than Native AOT to preserve support for future runtime-loaded plugins and
-content providers. Runtime plugin discovery and loading are not implemented
-yet; pages currently must be compiled and registered explicitly.
+than Native AOT to support runtime-loaded plugins.
 
 The published `content` directory and `appsettings.json` should remain beside the executable. Content files under `HappyGopher/content` are copied recursively during publish.
 
@@ -707,8 +773,6 @@ Gopher does not provide encryption. Traffic, selectors, and downloaded content a
 
 ## Current Limitations
 
-* Compiled `IGopherPage` implementations are supported, but runtime plugin DLL
-  discovery and loading are not
 * Dynamic routing supports exact selectors only; prefix, wildcard, and
   parameterized routes are not supported
 * No CGI or arbitrary scripting
@@ -724,6 +788,12 @@ Gopher does not provide encryption. Traffic, selectors, and downloaded content a
 ```text
 HappyGopher.slnx
 ├── Dockerfile
+├── HappyGopher.Extensibility/
+│   ├── AutoRegisterGopherPageAttribute.cs
+│   ├── GopherRequest.cs
+│   ├── GopherResponseKind.cs
+│   ├── GopherResponseWriter.cs
+│   └── IGopherPage.cs
 ├── HappyGopher/
 │   ├── Events/
 │   │   ├── GopherServiceStartedEvent.cs
@@ -732,14 +802,11 @@ HappyGopher.slnx
 │   ├── Gopher/
 │   │   ├── GopherConnectionHandler.cs
 │   │   ├── GopherContentStore.cs
-│   │   ├── GopherRequest.cs
-│   │   ├── GopherResponseWriter.cs
-│   │   ├── GopherResponseKind.cs
 │   │   └── GopherSessionResult.cs
 │   ├── Integrations/
 │   │   └── HappyQotd/
 │   ├── Pages/
-│   │   ├── IGopherPage.cs
+│   │   ├── GopherPageServiceCollectionExtensions.cs
 │   │   ├── GopherPageResolver.cs
 │   │   ├── HealthPage.cs
 │   │   ├── ServerTimePage.cs

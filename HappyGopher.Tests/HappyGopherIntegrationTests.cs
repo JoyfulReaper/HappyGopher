@@ -5,6 +5,7 @@
  */
 
 using HappyGopher.Events;
+using HappyGopher.Extensibility;
 using HappyGopher.Gopher;
 using HappyGopher.Pages;
 using HappyGopher.Pages.Guestbook;
@@ -208,6 +209,43 @@ public sealed class HappyGopherIntegrationTests
             {
                 await _finishedSignal.WaitAsync(cancellationToken);
             }
+        }
+    }
+
+    private sealed class CancellationBlockingPage : IGopherPage
+    {
+        private readonly TaskCompletionSource _started =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _canceled =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public string Selector => "/blocking-response";
+
+        public Task Started => _started.Task;
+
+        public Task Canceled => _canceled.Task;
+
+        public async Task<GopherResponseKind> WriteAsync(
+            GopherRequest request,
+            Stream output,
+            CancellationToken cancellationToken)
+        {
+            _started.TrySetResult();
+
+            try
+            {
+                await Task.Delay(
+                    Timeout.InfiniteTimeSpan,
+                    cancellationToken);
+            }
+            catch (OperationCanceledException)
+                when (cancellationToken.IsCancellationRequested)
+            {
+                _canceled.TrySetResult();
+                throw;
+            }
+
+            return GopherResponseKind.Text;
         }
     }
 
@@ -671,6 +709,89 @@ public sealed class HappyGopherIntegrationTests
 
         string secondResponse = await secondRequest.WaitAsync(timeout.Token);
         Assert.Equal("About\r\n.\r\n", secondResponse);
+    }
+
+    [Fact]
+    public async Task Server_NormalResponseCompletesBeforeResponseTimeout()
+    {
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(
+                responseTimeoutSeconds: 1);
+        server.Content.WriteText("about.txt", "About");
+
+        string response = await server.RequestAsync("/about.txt");
+
+        Assert.Equal("About\r\n.\r\n", response);
+    }
+
+    [Fact]
+    public async Task Server_ResponseTimeoutCancelsPageAndReleasesConnectionSlot()
+    {
+        CancellationBlockingPage page = new();
+        RecordingMissionControlClient recording = new();
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(
+                missionControlClient: recording,
+                maxConcurrentConnections: 1,
+                pages: [page],
+                responseTimeoutSeconds: 1);
+        server.Content.WriteText("about.txt", "About");
+        using CancellationTokenSource timeout =
+            new(TimeSpan.FromSeconds(5));
+
+        Task<string> blockedResponse =
+            server.RequestAsync(page.Selector);
+        await page.Started.WaitAsync(timeout.Token);
+
+        Task<string> secondResponse =
+            server.RequestAsync("/about.txt");
+
+        await page.Canceled.WaitAsync(timeout.Token);
+        Assert.Equal(
+            string.Empty,
+            await blockedResponse.WaitAsync(timeout.Token));
+        Assert.Equal(
+            "About\r\n.\r\n",
+            await secondResponse.WaitAsync(timeout.Token));
+
+        await recording.WaitForPublishedEventCountAsync(
+            SelectorServedEventName,
+            1,
+            timeout.Token);
+
+        RecordedMissionControlEvent telemetry = Assert.Single(
+            recording.PublishedEvents,
+            publishedEvent =>
+                publishedEvent.EventType ==
+                SelectorServedEventName);
+        SelectorServedEvent payload =
+            Assert.IsType<SelectorServedEvent>(telemetry.Payload);
+
+        Assert.Equal("/about.txt", payload.Selector);
+        Assert.True(payload.Succeeded);
+    }
+
+    [Fact]
+    public async Task Server_ShutdownCancelsBlockedResponseBeforeResponseTimeout()
+    {
+        CancellationBlockingPage page = new();
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(
+                pages: [page],
+                responseTimeoutSeconds: 60);
+        using CancellationTokenSource timeout =
+            new(TimeSpan.FromSeconds(5));
+
+        Task<string> blockedResponse =
+            server.RequestAsync(page.Selector);
+        await page.Started.WaitAsync(timeout.Token);
+
+        await server.StopAsync(timeout.Token);
+
+        await page.Canceled.WaitAsync(timeout.Token);
+        Assert.Equal(
+            string.Empty,
+            await blockedResponse.WaitAsync(timeout.Token));
     }
 
     [Fact]
@@ -1154,6 +1275,58 @@ public sealed class HappyGopherIntegrationTests
         Assert.EndsWith(".\r\n", viewResponse);
     }
 
+    [Fact]
+    public async Task Server_PassesConnectionEndpointsToDynamicPage()
+    {
+        await RequireDualStackLoopbackCapabilityAsync();
+
+        TestGopherPage page = new(
+            selector: "/capture",
+            response: "OK\r\n.\r\n");
+
+        await using TestGopherServer server =
+            await TestGopherServer.StartAsync(
+                pages: new IGopherPage[] { page },
+                listenAddress: "::",
+                dualMode: true);
+
+        string response = await server.RequestAsync(
+            "/capture",
+            IPAddress.IPv6Loopback);
+
+        Assert.Equal(
+            "OK\r\n.\r\n",
+            response);
+
+        GopherRequest request =
+            Assert.IsType<GopherRequest>(
+                page.LastRequest);
+
+        IPEndPoint remote =
+            Assert.IsType<IPEndPoint>(
+                request.RemoteEndPoint);
+
+        IPEndPoint local =
+            Assert.IsType<IPEndPoint>(
+                request.LocalEndPoint);
+
+        Assert.Equal(
+            IPAddress.IPv6Loopback,
+            remote.Address);
+
+        Assert.Equal(
+            IPAddress.IPv6Loopback,
+            local.Address);
+
+        Assert.Equal(
+            server.Port,
+            local.Port);
+
+        Assert.NotEqual(
+            server.Port,
+            remote.Port);
+    }
+
     private static async Task RequireDualStackLoopbackCapabilityAsync()
     {
         TcpListener? listener = null;
@@ -1229,7 +1402,8 @@ public sealed class HappyGopherIntegrationTests
             IGuestbookStore? guestbookStore = null,
             GuestbookOptions? guestbookOptions = null,
             string? listenAddress = null,
-            bool dualMode = false)
+            bool dualMode = false,
+            int responseTimeoutSeconds = 5)
         {
             if ((guestbookStore is null) != (guestbookOptions is null))
             {
@@ -1252,6 +1426,7 @@ public sealed class HappyGopherIntegrationTests
                 MaxSelectorBytes = 4096,
                 MaxInputBytes = 1024,
                 RequestTimeoutSeconds = 5,
+                ResponseTimeoutSeconds = responseTimeoutSeconds,
                 TelemetryIgnoredRemoteAddress =
                     telemetryIgnoredRemoteAddress,
                 TelemetryIgnoredSelectors =

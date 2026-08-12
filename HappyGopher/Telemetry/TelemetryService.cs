@@ -4,6 +4,7 @@
  * Licensed under the MIT License.
  */
 
+using HappyGopher.Extensibility;
 using HappyGopher.Events;
 using HappyGopher.Gopher;
 using JoyfulReaperLib.MissionControl;

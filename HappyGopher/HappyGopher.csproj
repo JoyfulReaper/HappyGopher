@@ -17,6 +17,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\HappyGopher.Extensibility\HappyGopher.Extensibility.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Update="content\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>

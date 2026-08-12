@@ -6,6 +6,7 @@
 
 // TODO: MissionControl Telemetry integration for guestbook signings
 
+using HappyGopher.Extensibility;
 using HappyGopher.Gopher;
 using Microsoft.Extensions.Options;
 

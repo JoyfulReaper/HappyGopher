@@ -4,9 +4,7 @@
  * Licensed under the MIT License.
  */
 
-using HappyGopher.Gopher;
-
-namespace HappyGopher.Pages;
+namespace HappyGopher.Extensibility;
 
 /// <summary>
 /// Represents a dynamic Gopher resource registered for an exact selector.

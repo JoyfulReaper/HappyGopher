@@ -7,7 +7,7 @@
 using System.Globalization;
 using System.Text;
 
-namespace HappyGopher.Gopher;
+namespace HappyGopher.Extensibility;
 
 /// <summary>
 /// Writes correctly formatted text and menu responses to a Gopher connection.
@@ -42,6 +42,14 @@ public sealed class GopherResponseWriter : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(line);
+
+        if (line.Contains('\r') || line.Contains('\n'))
+        {
+            throw new ArgumentException(
+                "A Gopher text line cannot contain carriage return or line feed characters.",
+                nameof(line));
+        }
+
         ThrowIfCompleted();
 
         if (line.StartsWith('.'))
@@ -68,6 +76,22 @@ public sealed class GopherResponseWriter : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(display);
         ArgumentNullException.ThrowIfNull(selector);
         ArgumentNullException.ThrowIfNull(host);
+
+        if (type is < '!' or > '~' || type == '.')
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(type),
+                type,
+                "A Gopher item type must be a printable, non-whitespace ASCII character other than '.'.");
+        }
+
+        if (port is < 0 or > 65535 || port == 0 && type != 'i')
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(port),
+                port,
+                "A Gopher menu item port must be between 1 and 65535, except informational items may use port 0.");
+        }
 
         ThrowIfCompleted();
 
