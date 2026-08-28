@@ -5,7 +5,6 @@
  */
 
 using HappyGopher.Extensibility;
-using HappyGopher.Gopher;
 using HappyGopher.Integrations.HappyQotd;
 using System.Text.Json;
 
@@ -13,6 +12,7 @@ namespace HappyGopher.Pages;
 
 public sealed class RandomQuotePage(
     IHappyQotdClient happyQotdClient,
+    GopherServerInfo serverInfo,
     ILogger<RandomQuotePage> logger) : IGopherPage
 {
     public const string PageSelector = "/random-quote";
@@ -38,12 +38,12 @@ public sealed class RandomQuotePage(
                     "HappyQOTD returned a quote with null text.");
             }
 
-            await writer.WriteTextLineAsync("Random Quote", cancellationToken);
-            await writer.WriteTextLineAsync(string.Empty, cancellationToken);
+            await writer.WriteInfoAsync("Random Quote", cancellationToken);
+            await writer.WriteInfoAsync(string.Empty, cancellationToken);
 
             if (quote is null)
             {
-                await writer.WriteTextLineAsync(
+                await writer.WriteInfoAsync(
                     "No quote was returned",
                     cancellationToken);
             }
@@ -51,19 +51,35 @@ public sealed class RandomQuotePage(
             {
                 foreach (string line in SplitLines(quote.Text))
                 {
-                    await writer.WriteTextLineAsync(line, cancellationToken);
+                    await writer.WriteInfoAsync(line, cancellationToken);
                 }
 
                 if (!string.IsNullOrWhiteSpace(quote.Author))
                 {
-                    await writer.WriteTextLineAsync($"-- {quote.Author}", cancellationToken);
+                    await writer.WriteInfoAsync($"-- {quote.Author}", cancellationToken);
                 }
 
                 if (!string.IsNullOrWhiteSpace(quote.Source))
                 {
-                    await writer.WriteTextLineAsync($"Source: {quote.Source}", cancellationToken);
+                    await writer.WriteInfoAsync($"Source: {quote.Source}", cancellationToken);
                 }
             }
+
+            await writer.WriteInfoAsync(string.Empty, cancellationToken);
+            await writer.WriteMenuItemAsync(
+                type: '1',
+                display: "Get another quote",
+                selector: "/random-quote",
+                host: serverInfo.PublicHost,
+                port: serverInfo.Port,
+                cancellationToken);
+            await writer.WriteMenuItemAsync(
+                type: '1',
+                display: "Go back to main menu",
+                selector: "",
+                host: serverInfo.PublicHost,
+                port: serverInfo.Port,
+                cancellationToken);
         }
         catch (HttpRequestException ex)
         {
@@ -72,7 +88,7 @@ public sealed class RandomQuotePage(
                 "HappyQOTD was unavailable while serving {Selector}.",
                 Selector);
 
-            await writer.WriteTextLineAsync(
+            await writer.WriteInfoAsync(
                 "Random Quote is temporarily unavailable.",
                 cancellationToken);
         }
@@ -83,7 +99,7 @@ public sealed class RandomQuotePage(
                 "HappyQOTD returned an invalid payload while serving {Selector}.",
                 Selector);
 
-            await writer.WriteTextLineAsync(
+            await writer.WriteInfoAsync(
                 "Random Quote is temporarily unavailable.",
                 cancellationToken);
         }
@@ -94,7 +110,7 @@ public sealed class RandomQuotePage(
                 "HappyQOTD timed out while serving {Selector}.",
                 Selector);
 
-            await writer.WriteTextLineAsync(
+            await writer.WriteInfoAsync(
                 "Random Quote request timed out.",
                 cancellationToken);
         }

@@ -4,4 +4,6 @@ hGitHub	URL:https://github.com/JoyfulReaper/HappyGopher
 i
 0About this server	/about.txt
 0Server time (UTC)	/server-time
+1QOTD	/qotd
+1Random Quote	/random-quote
 1Downloads	downloads
