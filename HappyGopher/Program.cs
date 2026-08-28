@@ -4,6 +4,7 @@
  * Licensed under the MIT License.
  */
 
+using HappyGopher.Extensibility;
 using HappyGopher.Gopher;
 using HappyGopher.Integrations.HappyQotd;
 using HappyGopher.Pages;
@@ -12,6 +13,7 @@ using HappyGopher.Plugins;
 using HappyGopher.Telemetry;
 using JoyfulReaperLib.MissionControl;
 using JoyfulReaperLib.TcpServer;
+using Microsoft.Extensions.Options;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -39,8 +41,7 @@ builder.Services
 
 // Mission Control Integration
 builder.Services.AddMissionControlClient(
-    builder.Configuration.GetSection(
-        MissionControlClientOptions.SectionName));
+    builder.Configuration.GetSection(MissionControlClientOptions.SectionName));
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 builder.Services.AddSingleton<GopherContentStore>();
 builder.Services.AddSingleton<TelemetryService>();
@@ -48,6 +49,14 @@ builder.Services.AddScoped<GopherPageResolver>();
 builder.Services.AddTcpServer<GopherConnectionHandler, HappyGopherOptions>();
 builder.Services.AddHostedService<GopherPageStartupValidator>();
 builder.Services.AddHostedService<GopherLifecycleService>();
+builder.Services.AddSingleton(sp =>
+{
+    HappyGopherOptions options = sp.GetRequiredService<IOptions<HappyGopherOptions>>().Value;
+
+    return new GopherServerInfo(
+        options.PublicHost,
+        options.Port);
+});
 
 // QOTD integration
 builder.Services.AddHappyQotd(builder.Configuration);

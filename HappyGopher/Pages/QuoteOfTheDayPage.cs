@@ -12,6 +12,7 @@ namespace HappyGopher.Pages;
 
 public sealed class QuoteOfTheDayPage(
     IHappyQotdClient happyQotdClient,
+    GopherServerInfo serverInfo,
     ILogger<QuoteOfTheDayPage> logger) : IGopherPage
 {
     public const string PageSelector = "/qotd";
@@ -33,16 +34,15 @@ public sealed class QuoteOfTheDayPage(
 
             if (quote is not null && quote.Text is null)
             {
-                throw new JsonException(
-                    "HappyQOTD returned a quote with null text.");
+                throw new JsonException("HappyQOTD returned a quote with null text.");
             }
 
-            await writer.WriteTextLineAsync("Quote of the Day", cancellationToken);
-            await writer.WriteTextLineAsync(string.Empty, cancellationToken);
+            await writer.WriteInfoAsync("Quote of the Day", cancellationToken);
+            await writer.WriteInfoAsync(string.Empty, cancellationToken);
 
             if (quote is null)
             {
-                await writer.WriteTextLineAsync(
+                await writer.WriteInfoAsync(
                     "No quote has been selected for today.",
                     cancellationToken);
             }
@@ -50,19 +50,28 @@ public sealed class QuoteOfTheDayPage(
             {
                 foreach (string line in SplitLines(quote.Text))
                 {
-                    await writer.WriteTextLineAsync(line, cancellationToken);
+                    await writer.WriteInfoAsync(line, cancellationToken);
                 }
 
                 if (!string.IsNullOrWhiteSpace(quote.Author))
                 {
-                    await writer.WriteTextLineAsync($"-- {quote.Author}", cancellationToken);
+                    await writer.WriteInfoAsync($"-- {quote.Author}", cancellationToken);
                 }
 
                 if (!string.IsNullOrWhiteSpace(quote.Source))
                 {
-                    await writer.WriteTextLineAsync($"Source: {quote.Source}", cancellationToken);
+                    await writer.WriteInfoAsync($"Source: {quote.Source}", cancellationToken);
                 }
             }
+
+            await writer.WriteInfoAsync(string.Empty, cancellationToken);
+            await writer.WriteMenuItemAsync(
+                type: '1',
+                display: "Go back to main menu",
+                selector: "",
+                host: serverInfo.PublicHost,
+                port: serverInfo.Port,
+                cancellationToken);
         }
         catch (HttpRequestException ex)
         {
@@ -71,7 +80,7 @@ public sealed class QuoteOfTheDayPage(
                 "HappyQOTD was unavailable while serving {Selector}.",
                 Selector);
 
-            await writer.WriteTextLineAsync(
+            await writer.WriteInfoAsync(
                 "Quote of the day is temporarily unavailable.",
                 cancellationToken);
         }
@@ -82,7 +91,7 @@ public sealed class QuoteOfTheDayPage(
                 "HappyQOTD returned an invalid payload while serving {Selector}.",
                 Selector);
 
-            await writer.WriteTextLineAsync(
+            await writer.WriteInfoAsync(
                 "Quote of the day is temporarily unavailable.",
                 cancellationToken);
         }
@@ -93,7 +102,7 @@ public sealed class QuoteOfTheDayPage(
                 "HappyQOTD timed out while serving {Selector}.",
                 Selector);
 
-            await writer.WriteTextLineAsync(
+            await writer.WriteInfoAsync(
                 "Quote of the day request timed out.",
                 cancellationToken);
         }
