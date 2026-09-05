@@ -31,7 +31,9 @@ public sealed class GopherContentStore
         ".txt", ".text", ".md", ".markdown", ".log", ".csv",
         ".json", ".xml", ".html", ".htm", ".css", ".js",
         ".cs", ".fs", ".vb", ".ps1", ".cmd", ".bat",
-        ".ini", ".cfg", ".conf", ".yaml", ".yml"
+        ".ini", ".cfg", ".conf", ".yaml", ".yml",
+        ".cs", ".cpp", ".h", ".hpp", ".java", ".py", ".rb",
+        ".c", ".py", ".log", ".sh", ".pl", ".php", ".r", ".swift", ".ts"
     };
 
     private static readonly HashSet<string> ImageExtensions = new(
