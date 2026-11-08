@@ -6,7 +6,6 @@
 
 using HappyGopher.Extensibility;
 using HappyGopher.Gopher;
-using HappyGopher.Integrations.HappyQotd;
 using HappyGopher.Pages;
 using HappyGopher.Pages.Guestbook;
 using HappyGopher.Plugins;
@@ -57,9 +56,6 @@ builder.Services.AddSingleton(sp =>
         options.PublicHost,
         options.Port);
 });
-
-// QOTD integration
-builder.Services.AddHappyQotd(builder.Configuration);
 
 // Guestbook integration
 GuestbookServiceCollectionExtensions.AddGuestbookPages(builder.Services, builder.Configuration);
