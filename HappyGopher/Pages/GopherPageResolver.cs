@@ -14,6 +14,8 @@ namespace HappyGopher.Pages;
 public sealed class GopherPageResolver
 {
     private readonly Dictionary<string, IGopherPage> _pages = new(StringComparer.Ordinal);
+    private readonly List<(string Prefix, IGopherPage Page)> _subselectorPages = [];
+
 
     public GopherPageResolver(IEnumerable<IGopherPage> pages)
     {
@@ -29,7 +31,21 @@ public sealed class GopherPageResolver
             {
                 throw new InvalidOperationException($"Multiple Gopher pages are registered for selector '{selector}'.");
             }
+
+            if (page is IGopherSubselectorPage)
+            {
+                if (selector == "/" || selector.EndsWith('/'))
+                {
+                    throw new InvalidOperationException(
+                        $"Invalid subselector page prefix '{selector}'.");
+                }
+
+                _subselectorPages.Add(($"{selector}/", page));
+            }
         }
+
+        _subselectorPages.Sort((left, right) =>
+            right.Prefix.Length.CompareTo(left.Prefix.Length));
     }
 
     /// <summary>
@@ -39,9 +55,20 @@ public sealed class GopherPageResolver
     {
         string normalizedSelector = NormalizeSelector(selector);
 
-        return _pages.TryGetValue(normalizedSelector, out IGopherPage? page)
-            ? page
-            : null;
+        if (_pages.TryGetValue(normalizedSelector, out IGopherPage? page))
+        {
+            return page;
+        }
+
+        foreach ((string prefix, IGopherPage subselectorPage) in _subselectorPages)
+        {
+            if (normalizedSelector.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                return subselectorPage;
+            }
+        }
+
+        return null;
     }
 
     private static string NormalizeSelector(string selector)
