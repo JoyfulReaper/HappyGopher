@@ -37,6 +37,26 @@ internal sealed class HappyGopherPluginLoadContext : AssemblyLoadContext
             return ExtensibilityAssembly;
         }
 
+        // Microsoft.Extensions abstractions cross the host/plugin boundary,
+        // so plugins must use the host's loaded copies.
+        if (assemblyName.Name?.StartsWith(
+                "Microsoft.Extensions.",
+                StringComparison.Ordinal) == true)
+        {
+            Assembly? sharedAssembly =
+                AssemblyLoadContext.Default.Assemblies
+                    .FirstOrDefault(assembly =>
+                        string.Equals(
+                            assembly.GetName().Name,
+                            assemblyName.Name,
+                            StringComparison.OrdinalIgnoreCase));
+
+            if (sharedAssembly is not null)
+            {
+                return sharedAssembly;
+            }
+        }
+
         string? assemblyPath = _resolver.ResolveAssemblyToPath(assemblyName);
         if (assemblyPath is null)
         {

@@ -5,6 +5,11 @@ namespace HappyGopher.TestPlugin;
 [AutoRegisterGopherPage]
 public sealed class TestPluginPage : IGopherPage
 {
+    public TestPluginPage(TestPluginDependency dependency)
+    {
+        ArgumentNullException.ThrowIfNull(dependency);
+    }
+
     public string Selector => "/test-plugin";
 
     public async Task<GopherResponseKind> WriteAsync(

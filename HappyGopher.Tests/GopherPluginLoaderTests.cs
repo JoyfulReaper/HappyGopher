@@ -107,6 +107,14 @@ public sealed class GopherPluginLoaderTests
 
         ServiceCollection services = new();
 
+        Type dependencyType = loaded.EntryAssembly.GetType(
+            "HappyGopher.TestPlugin.TestPluginDependency",
+            throwOnError: true)!;
+
+        services.AddSingleton(
+            dependencyType,
+            Activator.CreateInstance(dependencyType)!);
+
         services.AddGopherPagesFromAssemblies(
             loaded.EntryAssembly);
 
