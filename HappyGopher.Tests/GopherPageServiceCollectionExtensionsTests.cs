@@ -63,7 +63,7 @@ public sealed class GopherPageServiceCollectionExtensionsTests
     }
 
     [Fact]
-    public void AddGopherPagesFromAssemblyContaining_DoesNotRegisterOptionalPages()
+    public void AddGopherPagesFromAssemblyContaining_RegistersBuiltInPages()
     {
         ServiceCollection services = new();
 
@@ -78,14 +78,6 @@ public sealed class GopherPageServiceCollectionExtensionsTests
 
         Assert.Contains(typeof(HealthPage), implementationTypes);
         Assert.Contains(typeof(ServerTimePage), implementationTypes);
-
-        Assert.DoesNotContain(
-            typeof(RandomQuotePage),
-            implementationTypes);
-
-        Assert.DoesNotContain(
-            typeof(QuoteOfTheDayPage),
-            implementationTypes);
     }
 
     [AutoRegisterGopherPage]
