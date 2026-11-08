@@ -10,6 +10,9 @@ namespace HappyGopher.Tests;
 
 public sealed class RandomQuotePageTests
 {
+    private const string MainMenu = "1Go back to main menu\t\tlocalhost\t70\r\n";
+    private const string AnotherQuote = "1Get another quote\t/random-quote\tlocalhost\t70\r\n";
+
     [Fact]
     public async Task WriteAsync_WritesCompletedQuoteResponse()
     {
@@ -26,8 +29,9 @@ public sealed class RandomQuotePageTests
         string response = await WriteCompletedAsync(page);
 
         Assert.Equal(
-            "Random Quote\r\n\r\nStay curious.\r\n" +
-            "-- Grace Hopper\r\nSource: Collected wisdom\r\n.\r\n",
+            Info("Random Quote") + Info(string.Empty) + Info("Stay curious.") +
+            Info("-- Grace Hopper") + Info("Source: Collected wisdom") +
+            Info(string.Empty) + AnotherQuote + MainMenu + ".\r\n",
             response);
     }
 
@@ -45,7 +49,7 @@ public sealed class RandomQuotePageTests
         string response = await WriteCompletedAsync(page);
 
         Assert.DoesNotContain("-- ", response);
-        Assert.Contains("Source: Source\r\n", response);
+        Assert.Contains(Info("Source: Source"), response);
     }
 
     [Theory]
@@ -62,7 +66,7 @@ public sealed class RandomQuotePageTests
         string response = await WriteCompletedAsync(page);
 
         Assert.DoesNotContain("Source:", response);
-        Assert.Contains("-- Author\r\n", response);
+        Assert.Contains(Info("-- Author"), response);
     }
 
     [Fact]
@@ -79,13 +83,14 @@ public sealed class RandomQuotePageTests
         string response = await WriteCompletedAsync(page);
 
         Assert.Equal(
-            "Random Quote\r\n\r\n" +
-            "First\r\nSecond\r\nThird\r\nFourth\r\n.\r\n",
+            Info("Random Quote") + Info(string.Empty) +
+            Info("First") + Info("Second") + Info("Third") + Info("Fourth") +
+            Info(string.Empty) + AnotherQuote + MainMenu + ".\r\n",
             response);
     }
 
     [Fact]
-    public async Task WriteAsync_DotStuffsQuoteLines()
+    public async Task WriteAsync_WritesLeadingDotQuoteAsInfoItem()
     {
         RandomQuotePage page = CreatePage(new StubHappyQotdClient
         {
@@ -95,7 +100,7 @@ public sealed class RandomQuotePageTests
 
         string response = await WriteCompletedAsync(page);
 
-        Assert.Contains("\r\n..Hidden line\r\n", response);
+        Assert.Contains("\r\n" + Info(".Hidden line"), response);
     }
 
     [Fact]
@@ -106,7 +111,8 @@ public sealed class RandomQuotePageTests
         string response = await WriteCompletedAsync(page);
 
         Assert.Equal(
-            "Random Quote\r\n\r\nNo quote was returned\r\n.\r\n",
+            Info("Random Quote") + Info(string.Empty) + Info("No quote was returned") +
+            Info(string.Empty) + AnotherQuote + MainMenu + ".\r\n",
             response);
     }
 
@@ -123,7 +129,7 @@ public sealed class RandomQuotePageTests
         string response = await WriteCompletedAsync(page);
 
         Assert.Equal(
-            "Random Quote is temporarily unavailable.\r\n.\r\n",
+            Info("Random Quote is temporarily unavailable.") + ".\r\n",
             response);
     }
 
@@ -140,7 +146,7 @@ public sealed class RandomQuotePageTests
         string response = await WriteCompletedAsync(page);
 
         Assert.Equal(
-            "Random Quote request timed out.\r\n.\r\n",
+            Info("Random Quote request timed out.") + ".\r\n",
             response);
     }
 
@@ -184,7 +190,7 @@ public sealed class RandomQuotePageTests
         string response = await WriteCompletedAsync(page);
 
         Assert.Equal(
-            "Random Quote is temporarily unavailable.\r\n.\r\n",
+            Info("Random Quote is temporarily unavailable.") + ".\r\n",
             response);
         Assert.Contains(LogLevel.Warning, logger.Levels);
     }
@@ -204,15 +210,21 @@ public sealed class RandomQuotePageTests
         string response = await WriteCompletedAsync(page);
 
         Assert.Equal(
-            "Random Quote is temporarily unavailable.\r\n.\r\n",
+            Info("Random Quote is temporarily unavailable.") + ".\r\n",
             response);
         Assert.Contains(LogLevel.Warning, logger.Levels);
     }
 
+    private static string Info(string text) =>
+        $"i{text}\tfake\t(NULL)\t0\r\n";
+
     private static RandomQuotePage CreatePage(
-        IHappyQotdClient client,
-        ILogger<RandomQuotePage>? logger = null) =>
-        new(client, logger ?? NullLogger<RandomQuotePage>.Instance);
+         IHappyQotdClient client,
+         ILogger<RandomQuotePage>? logger = null) =>
+         new(
+             client,
+             new GopherServerInfo("localhost", 70),
+             logger ?? NullLogger<RandomQuotePage>.Instance);
 
     private static async Task<string> WriteCompletedAsync(
         RandomQuotePage page)
@@ -225,7 +237,7 @@ public sealed class RandomQuotePageTests
             CancellationToken.None);
         string response = Encoding.UTF8.GetString(output.ToArray());
 
-        Assert.Equal(GopherResponseKind.Text, responseKind);
+        Assert.Equal(GopherResponseKind.Menu, responseKind);
         Assert.EndsWith(".\r\n", response);
         return response;
     }

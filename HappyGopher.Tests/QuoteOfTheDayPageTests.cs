@@ -10,6 +10,8 @@ namespace HappyGopher.Tests;
 
 public sealed class QuoteOfTheDayPageTests
 {
+    private const string MainMenu = "1Go back to main menu\t\tlocalhost\t70\r\n";
+
     [Fact]
     public async Task WriteAsync_WritesCompletedQuoteResponseAndPreservesRequest()
     {
@@ -28,8 +30,9 @@ public sealed class QuoteOfTheDayPageTests
         string response = await WriteCompletedAsync(page, request);
 
         Assert.Equal(
-            "Quote of the Day\r\n\r\nStay curious.\r\n" +
-            "-- Grace Hopper\r\nSource: Collected wisdom\r\n.\r\n",
+            Info("Quote of the Day") + Info(string.Empty) + Info("Stay curious.") +
+            Info("-- Grace Hopper") + Info("Source: Collected wisdom") +
+            Info(string.Empty) + MainMenu + ".\r\n",
             response);
         Assert.Equal(expectedRequest, request);
         Assert.Null(request.Input);
@@ -49,7 +52,7 @@ public sealed class QuoteOfTheDayPageTests
         string response = await WriteCompletedAsync(page);
 
         Assert.DoesNotContain("-- ", response);
-        Assert.Contains("Source: Source\r\n", response);
+        Assert.Contains(Info("Source: Source"), response);
     }
 
     [Theory]
@@ -66,7 +69,7 @@ public sealed class QuoteOfTheDayPageTests
         string response = await WriteCompletedAsync(page);
 
         Assert.DoesNotContain("Source:", response);
-        Assert.Contains("-- Author\r\n", response);
+        Assert.Contains(Info("-- Author"), response);
     }
 
     [Fact]
@@ -83,13 +86,14 @@ public sealed class QuoteOfTheDayPageTests
         string response = await WriteCompletedAsync(page);
 
         Assert.Equal(
-            "Quote of the Day\r\n\r\n" +
-            "First\r\nSecond\r\nThird\r\nFourth\r\n.\r\n",
+            Info("Quote of the Day") + Info(string.Empty) +
+            Info("First") + Info("Second") + Info("Third") + Info("Fourth") +
+            Info(string.Empty) + MainMenu + ".\r\n",
             response);
     }
 
     [Fact]
-    public async Task WriteAsync_DotStuffsQuoteLines()
+    public async Task WriteAsync_WritesLeadingDotQuoteAsInfoItem()
     {
         QuoteOfTheDayPage page = CreatePage(new StubHappyQotdClient
         {
@@ -99,7 +103,7 @@ public sealed class QuoteOfTheDayPageTests
 
         string response = await WriteCompletedAsync(page);
 
-        Assert.Contains("\r\n..Hidden line\r\n", response);
+        Assert.Contains("\r\n" + Info(".Hidden line"), response);
     }
 
     [Fact]
@@ -110,8 +114,8 @@ public sealed class QuoteOfTheDayPageTests
         string response = await WriteCompletedAsync(page);
 
         Assert.Equal(
-            "Quote of the Day\r\n\r\n" +
-            "No quote has been selected for today.\r\n.\r\n",
+            Info("Quote of the Day") + Info(string.Empty) + Info("No quote has been selected for today.") +
+            Info(string.Empty) + MainMenu + ".\r\n",
             response);
     }
 
@@ -128,7 +132,7 @@ public sealed class QuoteOfTheDayPageTests
         string response = await WriteCompletedAsync(page);
 
         Assert.Equal(
-            "Quote of the day is temporarily unavailable.\r\n.\r\n",
+            Info("Quote of the day is temporarily unavailable.") + ".\r\n",
             response);
     }
 
@@ -145,7 +149,7 @@ public sealed class QuoteOfTheDayPageTests
         string response = await WriteCompletedAsync(page);
 
         Assert.Equal(
-            "Quote of the day request timed out.\r\n.\r\n",
+            Info("Quote of the day request timed out.") + ".\r\n",
             response);
     }
 
@@ -189,7 +193,7 @@ public sealed class QuoteOfTheDayPageTests
         string response = await WriteCompletedAsync(page);
 
         Assert.Equal(
-            "Quote of the day is temporarily unavailable.\r\n.\r\n",
+            Info("Quote of the day is temporarily unavailable.") + ".\r\n",
             response);
         Assert.Contains(LogLevel.Warning, logger.Levels);
     }
@@ -209,15 +213,21 @@ public sealed class QuoteOfTheDayPageTests
         string response = await WriteCompletedAsync(page);
 
         Assert.Equal(
-            "Quote of the day is temporarily unavailable.\r\n.\r\n",
+            Info("Quote of the day is temporarily unavailable.") + ".\r\n",
             response);
         Assert.Contains(LogLevel.Warning, logger.Levels);
     }
 
+    private static string Info(string text) =>
+        $"i{text}\tfake\t(NULL)\t0\r\n";
+
     private static QuoteOfTheDayPage CreatePage(
         IHappyQotdClient client,
         ILogger<QuoteOfTheDayPage>? logger = null) =>
-        new(client, logger ?? NullLogger<QuoteOfTheDayPage>.Instance);
+        new(
+            client,
+            new GopherServerInfo("localhost", 70),
+            logger ?? NullLogger<QuoteOfTheDayPage>.Instance);
 
     private static Task<string> WriteCompletedAsync(
         QuoteOfTheDayPage page) =>
@@ -237,7 +247,7 @@ public sealed class QuoteOfTheDayPageTests
             CancellationToken.None);
         string response = Encoding.UTF8.GetString(output.ToArray());
 
-        Assert.Equal(GopherResponseKind.Text, responseKind);
+        Assert.Equal(GopherResponseKind.Menu, responseKind);
         Assert.EndsWith(".\r\n", response);
         return response;
     }

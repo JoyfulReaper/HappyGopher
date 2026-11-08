@@ -19,6 +19,7 @@ public sealed class HappyQotdServiceCollectionExtensionsTests
             timeoutMilliseconds: 1500);
         ServiceCollection services = new();
         services.AddLogging();
+        services.AddSingleton(new GopherServerInfo("localhost", 70));
 
         services.AddHappyQotd(configuration);
 
