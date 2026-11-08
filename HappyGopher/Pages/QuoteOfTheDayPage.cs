@@ -109,7 +109,7 @@ public sealed class QuoteOfTheDayPage(
 
         await writer.CompleteAsync(cancellationToken);
 
-        return GopherResponseKind.Text;
+        return GopherResponseKind.Menu;
     }
 
     private static IEnumerable<string> SplitLines(string text) =>

@@ -117,7 +117,7 @@ public sealed class RandomQuotePage(
 
         await writer.CompleteAsync(cancellationToken);
 
-        return GopherResponseKind.Text;
+        return GopherResponseKind.Menu;
     }
 
     private static IEnumerable<string> SplitLines(string text) =>
